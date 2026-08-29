@@ -1,0 +1,16 @@
+{
+  "domain": "fronius_pv_manager",
+  "name": "Fronius PV Manager",
+  "codeowners": [
+    "@ekkehard-lutz"
+  ],
+  "config_flow": false,
+  "documentation": "https://github.com/ekkehard-lutz/fronius-pv-manager",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/ekkehard-lutz/fronius-pv-manager/issues",
+  "requirements": [
+    "pymodbus==3.13.1"
+  ],
+  "version": "0.0.0"
+}

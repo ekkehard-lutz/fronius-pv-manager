@@ -1,0 +1,1 @@
+"""Fronius PV Manager integration."""

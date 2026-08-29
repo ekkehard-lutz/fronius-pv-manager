@@ -1,0 +1,6 @@
+ruff
+pytest
+pytest-asyncio
+pymodbus==3.13.1
+openpyxl
+homeassistant

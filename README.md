@@ -22,4 +22,4 @@ import Fronius Excel register maps.
 
 ## License
 
-License information will be added before the first public release.
+This project is licensed under the MIT License.

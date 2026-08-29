@@ -1,24 +1,53 @@
 # Fronius PV Manager
 
-Home Assistant custom integration for Fronius inverters, battery storage systems,
-and smart meters using SunSpec Modbus TCP.
-
 ## Status
 
-Fronius PV Manager is currently under development and is not yet ready for use.
+Fronius PV Manager is under active development and is not yet ready for
+production use. The current code establishes the integration metadata and a
+tested core data model; device communication and Home Assistant entities are
+planned functionality.
 
-## Goals
+## Purpose
 
-- Local communication using Modbus TCP
-- SunSpec model discovery
-- Capability-based device support
-- Fronius inverter, storage, and smart meter entities
-- Safe control of supported read/write registers
-- Home Assistant native sensors and control entities
-- Foundation for external energy-management automations and integrations
+This custom integration will provide local Home Assistant access to compatible
+Fronius equipment through SunSpec Modbus TCP. Planned device classes include
+Fronius inverters, battery storage systems, and Fronius Smart Meters.
 
-Register definitions are maintained by the integration. End users do not need to
-import Fronius Excel register maps.
+Compatibility will depend on the SunSpec models and capabilities a device
+exposes. Universal compatibility with every Fronius product is not claimed.
+
+## Architecture
+
+The planned data path is:
+
+`Home Assistant → Fronius PV Manager → Fronius/SunSpec core → SunSpec model definitions → Modbus TCP → physical Fronius equipment`
+
+Discovery will derive features from available SunSpec models and registers.
+This capability-based approach avoids tying behavior to exact product names.
+
+## Register maps
+
+Fronius Excel register maps are development inputs only. End users will not be
+required to upload Excel files: the integration will ship reviewed register
+definitions. Support for new maps or models will arrive through integration
+updates and feature requests.
+
+## Read/write safety
+
+Writable Modbus registers will not automatically become unrestricted raw write
+endpoints. Future high-level controllers will validate register combinations,
+perform writes safely, and verify results. These safeguards are especially
+important for battery and storage control.
+
+## Localization
+
+English and German localization are supported from the beginning. User-visible
+text will live in Home Assistant translation files rather than in Python logic.
+
+## Development
+
+Development targets Python 3.12. Run `ruff check .` for linting and `pytest -q`
+for unit tests.
 
 ## License
 

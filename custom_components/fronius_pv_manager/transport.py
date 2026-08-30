@@ -8,9 +8,21 @@ third address space and must be combined with a discovered model base before a
 transport read is made.
 """
 
+from typing import Protocol
+
 from pymodbus.client import ModbusTcpClient
 
 from .const import DEFAULT_PORT, DEFAULT_UNIT_ID
+
+MAX_HOLDING_REGISTERS_PER_READ = 100
+
+
+class HoldingRegisterReader(Protocol):
+    """Object capable of reading zero-based Modbus holding registers."""
+
+    def read_holding_registers(self, address: int, count: int) -> tuple[int, ...]:
+        """Read a contiguous range of holding registers."""
+        ...
 
 
 class ModbusTransportError(Exception):
@@ -85,3 +97,25 @@ class ModbusTcpTransport:
                 f"expected {count} registers but received {len(registers)}"
             )
         return registers
+
+
+def read_holding_registers_chunked(
+    transport: HoldingRegisterReader,
+    start_address: int,
+    total_count: int,
+) -> tuple[int, ...]:
+    """Read a contiguous zero-based range in chunks of at most 100 registers."""
+    if start_address < 0:
+        raise ValueError("start_address must not be negative")
+    if total_count < 0:
+        raise ValueError("total_count must not be negative")
+
+    registers: list[int] = []
+    while len(registers) < total_count:
+        address = start_address + len(registers)
+        count = min(
+            MAX_HOLDING_REGISTERS_PER_READ,
+            total_count - len(registers),
+        )
+        registers.extend(transport.read_holding_registers(address, count))
+    return tuple(registers)

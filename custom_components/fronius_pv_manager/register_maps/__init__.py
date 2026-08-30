@@ -5,6 +5,7 @@ from .model_103 import MODEL_103
 from .model_120 import MODEL_120
 from .model_121 import MODEL_121
 from .model_122 import MODEL_122
+from .model_123 import MODEL_123
 from .model_160 import MODEL_160
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "MODEL_120",
     "MODEL_121",
     "MODEL_122",
+    "MODEL_123",
     "MODEL_160",
 ]

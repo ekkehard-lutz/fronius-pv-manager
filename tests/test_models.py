@@ -8,11 +8,14 @@ from custom_components.fronius_pv_manager.models import (
     Capability,
     DeviceProfile,
     DiscoveredModel,
+    DiscoveredRepeatingBlockInstance,
     EntityDefinition,
     EntityPlatform,
+    PhysicalDeviceRole,
     RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
+    RepeatingBlockDefinition,
     SunSpecModelDefinition,
     ValueRange,
 )
@@ -172,6 +175,186 @@ def test_entity_definition_rejects_empty_key() -> None:
     """Entity metadata needs a stable, non-empty key."""
     with pytest.raises(ValueError, match="key"):
         EntityDefinition(platform=EntityPlatform.SENSOR, key=" ")
+
+
+def test_entity_definition_device_role_is_optional() -> None:
+    """Existing entity metadata remains valid without a physical device role."""
+    definition = EntityDefinition(platform=EntityPlatform.SENSOR, key="power")
+
+    assert definition.device_role is None
+
+
+def test_entity_definition_stores_device_role() -> None:
+    """Entity metadata can identify its future owning physical device."""
+    definition = EntityDefinition(
+        platform=EntityPlatform.SENSOR,
+        key="state_of_charge",
+        device_role=PhysicalDeviceRole.STORAGE,
+    )
+
+    assert definition.device_role is PhysicalDeviceRole.STORAGE
+
+
+def test_physical_device_role_values() -> None:
+    """Every supported physical device role has a stable string value."""
+    assert {role.value for role in PhysicalDeviceRole} == {
+        "inverter",
+        "storage",
+        "meter",
+    }
+
+
+def test_valid_repeating_block_definition() -> None:
+    """A block accepts adjacent block-relative register definitions."""
+    block = RepeatingBlockDefinition(
+        name="mppt_module",
+        offset=10,
+        block_size=4,
+        registers=(register("dc_current", 0, 2), register("dc_voltage", 2, 2)),
+    )
+
+    assert block.offset == 10
+    assert block.registers[1].offset == 2
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"name": " "}, "name"),
+        ({"offset": -1}, "offset"),
+        ({"block_size": 0}, "size"),
+    ],
+)
+def test_repeating_block_rejects_invalid_coordinates(
+    kwargs: dict[str, object], message: str
+) -> None:
+    """A repeating block needs a name and valid coordinates."""
+    values = {"name": "module", "offset": 0, "block_size": 2, "registers": ()}
+    with pytest.raises(ValueError, match=message):
+        RepeatingBlockDefinition(**(values | kwargs))
+
+
+def test_repeating_block_rejects_overlapping_registers() -> None:
+    """Block-relative register ranges may not overlap."""
+    with pytest.raises(ValueError, match="overlap"):
+        RepeatingBlockDefinition(
+            "module",
+            10,
+            4,
+            (register("current", 0, 2), register("voltage", 1, 2)),
+        )
+
+
+def test_repeating_block_rejects_register_outside_block() -> None:
+    """Every repeated register must fit completely within one block."""
+    with pytest.raises(ValueError, match="repeating block"):
+        RepeatingBlockDefinition(
+            "module", 10, 4, (register("energy", 3, 2),)
+        )
+
+
+def test_repeating_block_rejects_duplicate_register_names() -> None:
+    """Register names are unique within a repeating block."""
+    with pytest.raises(ValueError, match="unique"):
+        RepeatingBlockDefinition(
+            "module",
+            10,
+            4,
+            (register("current", 0), register("current", 1)),
+        )
+
+
+def test_model_rejects_duplicate_repeating_block_names() -> None:
+    """Repeating block names are unambiguous within a model definition."""
+    first = RepeatingBlockDefinition("module", 10, 2, (register(),))
+    second = RepeatingBlockDefinition("module", 20, 2, (register(),))
+
+    with pytest.raises(ValueError, match="unique"):
+        SunSpecModelDefinition(
+            (160,), "mppt", (), repeating_blocks=(first, second)
+        )
+
+
+def test_repeating_block_may_end_exactly_at_expected_length() -> None:
+    """The first complete block may end at the declared model boundary."""
+    block = RepeatingBlockDefinition("module", 10, 2, (register(),))
+
+    model = SunSpecModelDefinition(
+        (160,), "mppt", (), expected_length=12, repeating_blocks=(block,)
+    )
+
+    assert block.offset + block.block_size == model.expected_length
+
+
+def test_repeating_block_may_not_extend_beyond_expected_length() -> None:
+    """The first complete block must fit inside the declared model length."""
+    block = RepeatingBlockDefinition("module", 10, 2, (register(),))
+
+    with pytest.raises(ValueError, match="expected_length"):
+        SunSpecModelDefinition(
+            (160,), "mppt", (), expected_length=11, repeating_blocks=(block,)
+        )
+
+
+def test_fixed_register_may_end_where_repeating_block_begins() -> None:
+    """Adjacent fixed and first repeated ranges do not overlap."""
+    block = RepeatingBlockDefinition("module", 10, 2, (register(),))
+
+    model = SunSpecModelDefinition(
+        (160,),
+        "mppt",
+        (register("header", 8, 2),),
+        repeating_blocks=(block,),
+    )
+
+    assert model.registers[0].offset + model.registers[0].size == block.offset
+
+
+def test_fixed_register_may_not_overlap_repeating_block() -> None:
+    """A fixed register cannot occupy the first repeated-block range."""
+    block = RepeatingBlockDefinition("module", 10, 2, (register(),))
+
+    with pytest.raises(ValueError, match="overlaps repeating block"):
+        SunSpecModelDefinition(
+            (160,),
+            "mppt",
+            (register("header", 9, 2),),
+            repeating_blocks=(block,),
+        )
+
+
+def test_repeating_block_definition_is_immutable() -> None:
+    """A validated repeating block cannot be reassigned."""
+    block = RepeatingBlockDefinition("module", 10, 2, (register(),))
+
+    with pytest.raises(FrozenInstanceError):
+        block.block_size = 4  # type: ignore[misc]
+
+
+def test_discovered_repeating_instance_is_immutable() -> None:
+    """A concrete repeated-instance record cannot be reassigned."""
+    instance = DiscoveredRepeatingBlockInstance("module", 0, 10)
+
+    with pytest.raises(FrozenInstanceError):
+        instance.instance_index = 1  # type: ignore[misc]
+
+
+def test_repeating_definition_does_not_encode_instance_count() -> None:
+    """One definition supports an arbitrary runtime number of instances."""
+    block = RepeatingBlockDefinition("module", 10, 2, (register(),))
+    model = SunSpecModelDefinition((160,), "mppt", (), repeating_blocks=(block,))
+    instances = tuple(
+        DiscoveredRepeatingBlockInstance(
+            block_name=block.name,
+            instance_index=index,
+            base_offset=block.offset + index * block.block_size,
+        )
+        for index in range(12)
+    )
+
+    assert model.repeating_blocks == (block,)
+    assert len(instances) == 12
+    assert instances[-1].instance_index == 11
 
 
 def test_enum_metadata_requires_enum_type() -> None:

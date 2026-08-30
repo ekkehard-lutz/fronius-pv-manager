@@ -25,6 +25,14 @@ The planned data path is:
 Discovery will derive features from available SunSpec models and registers.
 This capability-based approach avoids tying behavior to exact product names.
 
+Definitions describe possible data, not guaranteed entities. A register
+definition does not automatically produce a Home Assistant entity, and a
+theoretically possible repeated block does not mean that a physical device
+implements that instance. Future runtime discovery will select the repeated
+instances that are actually present. Absent optional or repeated instances
+should not create permanent unavailable entities; unavailable is reserved for
+an entity considered present whose current value cannot be read or decoded.
+
 ## Register maps
 
 Fronius Excel register maps are development inputs only. End users will not be

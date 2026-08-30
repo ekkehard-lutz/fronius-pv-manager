@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 
+from .role import PhysicalDeviceRole
+
 
 class RegisterDataType(StrEnum):
     """Data types used by SunSpec register definitions."""
@@ -92,6 +94,7 @@ class EntityDefinition:
     state_class: str | None = None
     default_enabled: bool = True
     entity_category: str | None = None
+    device_role: PhysicalDeviceRole | None = None
 
     def __post_init__(self) -> None:
         """Reject metadata that cannot identify an entity."""
@@ -148,6 +151,60 @@ class RegisterDefinition:
             )
 
 
+def _validate_register_layout(
+    registers: tuple[RegisterDefinition, ...],
+    *,
+    container_name: str,
+    length: int | None = None,
+    length_name: str | None = None,
+) -> None:
+    """Validate unique names, non-overlap, and optional container bounds."""
+    register_names = [register.name for register in registers]
+    if len(register_names) != len(set(register_names)):
+        raise ValueError(f"register names must be unique within {container_name}")
+    if length is not None and any(
+        register.offset + register.size > length for register in registers
+    ):
+        raise ValueError(f"register must fit within {length_name or container_name}")
+
+    by_offset = sorted(registers, key=lambda register: register.offset)
+    for previous, current in zip(by_offset, by_offset[1:], strict=False):
+        if current.offset < previous.offset + previous.size:
+            raise ValueError(
+                f"register ranges overlap: {previous.name!r} and {current.name!r}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class RepeatingBlockDefinition:
+    """Describe a repeated group of registers within a SunSpec model.
+
+    ``offset`` is the model-relative start of the first possible instance.
+    Register offsets within ``registers`` are relative to each repeated block.
+    The definition deliberately contains no instance count; future discovery
+    determines which instances a physical device actually implements.
+    """
+
+    name: str
+    offset: int
+    block_size: int
+    registers: tuple[RegisterDefinition, ...]
+
+    def __post_init__(self) -> None:
+        """Validate the repeating block coordinates and register layout."""
+        if not self.name.strip():
+            raise ValueError("repeating block name must not be empty")
+        if self.offset < 0:
+            raise ValueError("repeating block offset must not be negative")
+        if self.block_size <= 0:
+            raise ValueError("repeating block size must be positive")
+        _validate_register_layout(
+            self.registers,
+            container_name="repeating block",
+            length=self.block_size,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class SunSpecModelDefinition:
     """A SunSpec model layout known by the integration.
@@ -160,6 +217,7 @@ class SunSpecModelDefinition:
     name: str
     registers: tuple[RegisterDefinition, ...]
     expected_length: int | None = None
+    repeating_blocks: tuple[RepeatingBlockDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         """Validate model identity and its register layout."""
@@ -174,21 +232,29 @@ class SunSpecModelDefinition:
         if self.expected_length is not None and self.expected_length <= 0:
             raise ValueError("expected_length must be positive")
 
-        register_names = [register.name for register in self.registers]
-        if len(register_names) != len(set(register_names)):
-            raise ValueError("register names must be unique within a model")
+        _validate_register_layout(
+            self.registers,
+            container_name="model",
+            length=self.expected_length,
+            length_name="expected_length",
+        )
+        block_names = [block.name for block in self.repeating_blocks]
+        if len(block_names) != len(set(block_names)):
+            raise ValueError("repeating block names must be unique within a model")
         if self.expected_length is not None and any(
-            register.offset + register.size > self.expected_length
-            for register in self.registers
+            block.offset + block.block_size > self.expected_length
+            for block in self.repeating_blocks
         ):
-            raise ValueError("register must fit within expected_length")
-
-        by_offset = sorted(self.registers, key=lambda register: register.offset)
-        for previous, current in zip(by_offset, by_offset[1:], strict=False):
-            if current.offset < previous.offset + previous.size:
-                raise ValueError(
-                    f"register ranges overlap: {previous.name!r} and {current.name!r}"
-                )
+            raise ValueError("repeating block must fit within expected_length")
+        for register in self.registers:
+            register_end = register.offset + register.size
+            for block in self.repeating_blocks:
+                block_end = block.offset + block.block_size
+                if register.offset < block_end and block.offset < register_end:
+                    raise ValueError(
+                        f"fixed register {register.name!r} overlaps repeating block "
+                        f"{block.name!r}"
+                    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +278,29 @@ class DiscoveredModel:
             raise ValueError("base_address must not be negative")
         if self.length <= 0:
             raise ValueError("length must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveredRepeatingBlockInstance:
+    """A usable concrete instance of a repeating register block.
+
+    ``instance_index`` is zero-based. ``base_offset`` is the model-relative
+    start of this concrete instance. This type records a discovery result but
+    does not decide whether any theoretically possible instance is present.
+    """
+
+    block_name: str
+    instance_index: int
+    base_offset: int
+
+    def __post_init__(self) -> None:
+        """Validate the concrete repeated-instance identity and coordinates."""
+        if not self.block_name.strip():
+            raise ValueError("repeating block name must not be empty")
+        if self.instance_index < 0:
+            raise ValueError("instance_index must not be negative")
+        if self.base_offset < 0:
+            raise ValueError("base_offset must not be negative")
 
 
 @dataclass(frozen=True, slots=True)

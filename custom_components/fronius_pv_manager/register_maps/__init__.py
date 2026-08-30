@@ -8,6 +8,7 @@ from .model_122 import MODEL_122
 from .model_123 import MODEL_123
 from .model_124 import MODEL_124
 from .model_160 import MODEL_160
+from .model_203 import MODEL_203
 
 __all__ = [
     "MODEL_1",
@@ -18,4 +19,5 @@ __all__ = [
     "MODEL_123",
     "MODEL_124",
     "MODEL_160",
+    "MODEL_203",
 ]

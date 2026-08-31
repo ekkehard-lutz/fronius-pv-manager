@@ -85,6 +85,7 @@ def run_inspection(
     *,
     dump_model: int | None = None,
     decode: bool = False,
+    show_all: bool = False,
 ) -> tuple[int, str, str]:
     """Run inspection with captured streams and an injected fake transport."""
     stdout = StringIO()
@@ -96,6 +97,7 @@ def run_inspection(
         1,
         dump_model=dump_model,
         decode=decode,
+        show_all=show_all,
         transport_factory=lambda *args, **kwargs: transport,
         stdout=stdout,
         stderr=stderr,
@@ -411,6 +413,13 @@ def test_info_without_host_does_not_construct_transport(monkeypatch) -> None:
     assert main(["--info", "124:ChaState"]) == 0
 
 
+def test_all_without_decode_is_rejected(capsys) -> None:
+    """The technical-output flag cannot be used outside decoded inspection."""
+    with pytest.raises(SystemExit):
+        main(["--host", "192.0.2.10", "--all"])
+    assert "--all requires --decode" in capsys.readouterr().err
+
+
 def test_decode_model_1_prints_real_identity_and_unavailable_marker() -> None:
     """Common Model identity strings use the production model decoder."""
     registers = model_chain((1, 65))
@@ -423,7 +432,9 @@ def test_decode_model_1_prints_real_identity_and_unavailable_marker() -> None:
     set_payload(registers, payload)
     transport = FakeTransport(registers)
 
-    status, stdout, stderr = run_inspection(transport, decode=True)
+    status, stdout, stderr = run_inspection(
+        transport, decode=True, show_all=True
+    )
 
     assert status == 0
     assert "Model 1 - Common" in stdout
@@ -443,7 +454,9 @@ def test_decode_fixed_model_prints_values_units_scale_factors_and_role() -> None
     payload[0] = 0xFFFF
     set_payload(registers, payload)
 
-    status, stdout, _ = run_inspection(FakeTransport(registers), decode=True)
+    status, stdout, _ = run_inspection(
+        FakeTransport(registers), decode=True, show_all=True
+    )
 
     assert status == 0
     assert "physical role: inverter" in stdout
@@ -451,6 +464,38 @@ def test_decode_fixed_model_prints_values_units_scale_factors_and_role() -> None
     assert "W                    335.4 W" in stdout
     assert "W_SF                 -1" in stdout
     assert "  inverter" in stdout
+
+
+def test_decode_default_view_filters_after_successful_scaled_decoding() -> None:
+    """Normal decoding shows enabled entities after resolving hidden scale factors."""
+    registers = model_chain((103, 50))
+    payload = decodable_payload(MODEL_103)
+    payload[12] = 3354
+    payload[13] = 0xFFFF
+    set_payload(registers, payload)
+
+    status, stdout, _ = run_inspection(FakeTransport(registers), decode=True)
+
+    assert status == 0
+    assert "  W                    335.4 W" in stdout
+    assert "  W_SF" not in stdout
+    assert "  VA                   " not in stdout
+    assert "  Evt1" not in stdout
+
+
+def test_decode_all_includes_disabled_entities_and_non_entity_registers() -> None:
+    """The technical view preserves the former complete decoded output."""
+    registers = model_chain((103, 50))
+    set_payload(registers, decodable_payload(MODEL_103))
+
+    status, stdout, _ = run_inspection(
+        FakeTransport(registers), decode=True, show_all=True
+    )
+
+    assert status == 0
+    assert "  VA                   0 VA" in stdout
+    assert "  W_SF                 0" in stdout
+    assert "  Evt1                 none" in stdout
 
 
 def test_decode_model_160_prints_runtime_semantics_and_capability() -> None:
@@ -464,7 +509,9 @@ def test_decode_model_160_prints_runtime_semantics_and_capability() -> None:
         payload[base + 1 : base + 9] = string_words(name, 8)
     set_payload(registers, payload)
 
-    status, stdout, _ = run_inspection(FakeTransport(registers), decode=True)
+    status, stdout, _ = run_inspection(
+        FakeTransport(registers), decode=True, show_all=True
+    )
 
     assert status == 0
     assert "module instance 3" in stdout
@@ -474,6 +521,28 @@ def test_decode_model_160_prints_runtime_semantics_and_capability() -> None:
     assert "semantic kind: storage_discharge" in stdout
     assert "physical role: storage" in stdout
     assert "  mppt" in stdout
+
+
+def test_decode_model_160_default_view_filters_repeating_registers() -> None:
+    """Module semantics use full data while output keeps enabled DC measurements."""
+    registers = model_chain((160, 88))
+    payload = decodable_payload(MODEL_160)
+    payload[6] = 4
+    for index, name in enumerate(("MPPT 1", "MPPT 2", "StCha 3", "StDisCha 4")):
+        base = 8 + index * 20
+        payload[base] = index + 1
+        payload[base + 1 : base + 9] = string_words(name, 8)
+    set_payload(registers, payload)
+
+    status, stdout, _ = run_inspection(FakeTransport(registers), decode=True)
+
+    assert status == 0
+    assert "semantic kind: storage_discharge" in stdout
+    for name in ("DCA", "DCV", "DCW", "DCWH"):
+        assert f"    {name:<20}" in stdout
+    assert "    ID                   " not in stdout
+    assert "    IDStr                " not in stdout
+    assert "    DCEvt                " not in stdout
 
 
 def test_decode_model_203_uses_generic_chunked_reader() -> None:

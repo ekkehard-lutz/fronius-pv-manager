@@ -153,6 +153,7 @@ def inspect_device(
     *,
     dump_model: int | None = None,
     decode: bool = False,
+    show_all: bool = False,
     transport_factory: TransportFactory = ModbusTcpTransport,
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
@@ -184,7 +185,9 @@ def inspect_device(
         print(f"Discovered model count: {len(models)}", file=stdout)
 
         if decode:
-            _print_decoded_models(transport, models, stdout, stderr)
+            _print_decoded_models(
+                transport, models, stdout, stderr, show_all=show_all
+            )
 
         if dump_model is not None:
             selected_model = next(
@@ -257,6 +260,8 @@ def _print_decoded_model(
     definition: SunSpecModelDefinition,
     decoded: DecodedModel,
     stdout: TextIO,
+    *,
+    show_all: bool = False,
 ) -> None:
     """Print fixed and repeating values from an existing decoder result."""
     model_id = definition.model_ids[0]
@@ -265,7 +270,10 @@ def _print_decoded_model(
     if role is not None:
         print(f"  physical role: {role.value}", file=stdout)
     for register in definition.registers:
-        _print_register(register, decoded.fixed[register.name], stdout)
+        if show_all or (
+            register.entity is not None and register.entity.enabled_by_default
+        ):
+            _print_register(register, decoded.fixed[register.name], stdout)
 
     classifications = (
         {
@@ -294,12 +302,22 @@ def _print_decoded_model(
                 )
                 print(f"    physical role: {physical_role}", file=stdout)
             for name, value in instance.values.items():
-                _print_register(
-                    register_by_name[name], value, stdout, indent="    "
-                )
+                register = register_by_name[name]
+                if show_all or (
+                    register.entity is not None
+                    and register.entity.enabled_by_default
+                ):
+                    _print_register(register, value, stdout, indent="    ")
 
 
-def _print_decoded_models(transport, models, stdout: TextIO, stderr: TextIO) -> None:
+def _print_decoded_models(
+    transport,
+    models,
+    stdout: TextIO,
+    stderr: TextIO,
+    *,
+    show_all: bool = False,
+) -> None:
     """Read, decode, and format every locally supported discovered model."""
     profile = infer_device_profile(models)
     decoded_model_160 = None
@@ -330,7 +348,7 @@ def _print_decoded_models(transport, models, stdout: TextIO, stderr: TextIO) -> 
         except ValueError as err:
             print(f"Model {model.model_id}: decoding failed: {err}", file=stderr)
             continue
-        _print_decoded_model(definition, decoded, stdout)
+        _print_decoded_model(definition, decoded, stdout, show_all=show_all)
         if model.model_id == 160:
             decoded_model_160 = decoded
 
@@ -371,6 +389,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Decode supported discovered models using local register maps",
     )
     parser.add_argument(
+        "--all",
+        action="store_true",
+        help="With --decode, show all technical registers",
+    )
+    parser.add_argument(
         "--info",
         metavar="PARAMETER",
         help="Show metadata for NAME or MODEL_ID:NAME without connecting",
@@ -388,6 +411,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Parse command-line arguments and run device inspection."""
     parser = create_argument_parser()
     arguments = parser.parse_args(argv)
+    if arguments.all and not arguments.decode:
+        parser.error("--all requires --decode")
     if arguments.info is not None:
         return inspect_parameter(arguments.info, language=arguments.lang)
     if arguments.host is None:
@@ -398,6 +423,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         arguments.device_id,
         dump_model=arguments.dump_model,
         decode=arguments.decode,
+        show_all=arguments.all,
     )
 
 

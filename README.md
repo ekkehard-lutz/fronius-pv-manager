@@ -72,6 +72,20 @@ optional. The inspector accepts `--info MODEL_ID:NAME --lang LANGUAGE`.
 Future Home Assistant presentation can use the same fallback helper to select
 text from the current user-interface language.
 
+The standalone developer inspector supports complementary views:
+
+```text
+python tools/inspect_device.py --host 192.168.2.11 --decode
+python tools/inspect_device.py --host 192.168.2.11 --decode --all
+python tools/inspect_device.py --info 124:ChaState
+python tools/inspect_device.py --info 124:ChaState --lang de
+```
+
+`--decode` is the concise operational view containing enabled-by-default
+catalog entities. Adding `--all` shows the complete technical decoded model.
+`--info` independently looks up metadata and help for any known register,
+regardless of whether it is cataloged or enabled.
+
 ## Development
 
 Development targets Python 3.12. Run `ruff check .` for linting and `pytest -q`

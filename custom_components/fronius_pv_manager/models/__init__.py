@@ -5,6 +5,7 @@ from .device import DeviceProfile
 from .register import (
     DiscoveredModel,
     DiscoveredRepeatingBlockInstance,
+    EntityCategoryHint,
     EntityDefinition,
     EntityPlatform,
     PollClass,
@@ -23,6 +24,7 @@ __all__ = [
     "DeviceProfile",
     "DiscoveredModel",
     "DiscoveredRepeatingBlockInstance",
+    "EntityCategoryHint",
     "EntityDefinition",
     "EntityPlatform",
     "PollClass",

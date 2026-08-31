@@ -64,6 +64,14 @@ class EntityPlatform(StrEnum):
     SWITCH = "switch"
 
 
+class EntityCategoryHint(StrEnum):
+    """Home Assistant-independent presentation purpose for a future entity."""
+
+    PRIMARY = "primary"
+    DIAGNOSTIC = "diagnostic"
+    CONFIG = "config"
+
+
 @dataclass(frozen=True, slots=True)
 class ValueRange:
     """Optional bounds and increment metadata for a decoded value."""
@@ -95,6 +103,7 @@ class EntityDefinition:
     default_enabled: bool = True
     entity_category: str | None = None
     device_role: PhysicalDeviceRole | None = None
+    category: EntityCategoryHint = EntityCategoryHint.PRIMARY
 
     def __post_init__(self) -> None:
         """Reject metadata that cannot identify an entity."""

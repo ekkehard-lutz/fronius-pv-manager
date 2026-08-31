@@ -9,6 +9,7 @@ from custom_components.fronius_pv_manager.models import (
     DeviceProfile,
     DiscoveredModel,
     DiscoveredRepeatingBlockInstance,
+    EntityCategoryHint,
     EntityDefinition,
     EntityPlatform,
     PhysicalDeviceRole,
@@ -182,6 +183,75 @@ def test_entity_definition_device_role_is_optional() -> None:
     definition = EntityDefinition(platform=EntityPlatform.SENSOR, key="power")
 
     assert definition.device_role is None
+
+
+def test_entity_category_hint_values() -> None:
+    """Presentation hints are immutable enum values with stable strings."""
+    assert {category.value for category in EntityCategoryHint} == {
+        "primary",
+        "diagnostic",
+        "config",
+    }
+    with pytest.raises(AttributeError):
+        EntityCategoryHint.PRIMARY.value = "changed"  # type: ignore[misc]
+
+
+def test_entity_definition_defaults_to_primary() -> None:
+    """Existing entity construction remains a primary presentation value."""
+    definition = EntityDefinition(platform=EntityPlatform.SENSOR, key="power")
+
+    assert definition.category is EntityCategoryHint.PRIMARY
+
+
+@pytest.mark.parametrize(
+    "category", [EntityCategoryHint.DIAGNOSTIC, EntityCategoryHint.CONFIG]
+)
+def test_entity_definition_accepts_explicit_category(
+    category: EntityCategoryHint,
+) -> None:
+    """Diagnostic and configuration presentation can be selected explicitly."""
+    definition = EntityDefinition(
+        platform=EntityPlatform.SENSOR,
+        key="technical_value",
+        category=category,
+    )
+
+    assert definition.category is category
+
+
+@pytest.mark.parametrize(
+    ("key", "role", "category"),
+    [
+        ("inverter_power", PhysicalDeviceRole.INVERTER, EntityCategoryHint.PRIMARY),
+        (
+            "inverter_temperature",
+            PhysicalDeviceRole.INVERTER,
+            EntityCategoryHint.DIAGNOSTIC,
+        ),
+        ("storage_soc", PhysicalDeviceRole.STORAGE, EntityCategoryHint.PRIMARY),
+        (
+            "storage_control",
+            PhysicalDeviceRole.STORAGE,
+            EntityCategoryHint.CONFIG,
+        ),
+        ("meter_power", PhysicalDeviceRole.METER, EntityCategoryHint.PRIMARY),
+    ],
+)
+def test_presentation_category_is_independent_from_physical_role(
+    key: str,
+    role: PhysicalDeviceRole,
+    category: EntityCategoryHint,
+) -> None:
+    """Physical ownership and presentation purpose remain separate dimensions."""
+    definition = EntityDefinition(
+        platform=EntityPlatform.SENSOR,
+        key=key,
+        device_role=role,
+        category=category,
+    )
+
+    assert definition.device_role is role
+    assert definition.category is category
 
 
 def test_entity_definition_stores_device_role() -> None:

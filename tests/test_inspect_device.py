@@ -2,13 +2,26 @@
 
 from io import StringIO
 
+import pytest
+
+from custom_components.fronius_pv_manager.models import (
+    RegisterAccess,
+    RegisterDataType,
+    RegisterDefinition,
+    RegisterValue,
+)
+from custom_components.fronius_pv_manager.register_maps import (
+    MODEL_103,
+    MODEL_160,
+    MODEL_203,
+)
 from custom_components.fronius_pv_manager.sunspec import (
     SUNSPEC_BASE_TRANSPORT_ADDRESS,
 )
 from custom_components.fronius_pv_manager.transport import (
     ModbusConnectionError,
 )
-from tools.inspect_device import create_argument_parser, inspect_device
+from tools.inspect_device import _format_value, create_argument_parser, inspect_device
 
 
 class FakeTransport:
@@ -62,7 +75,10 @@ def model_chain(*models: tuple[int, int]) -> dict[int, int]:
 
 
 def run_inspection(
-    transport: FakeTransport, *, dump_model: int | None = None
+    transport: FakeTransport,
+    *,
+    dump_model: int | None = None,
+    decode: bool = False,
 ) -> tuple[int, str, str]:
     """Run inspection with captured streams and an injected fake transport."""
     stdout = StringIO()
@@ -73,11 +89,85 @@ def run_inspection(
         502,
         1,
         dump_model=dump_model,
+        decode=decode,
         transport_factory=lambda *args, **kwargs: transport,
         stdout=stdout,
         stderr=stderr,
     )
     return status, stdout.getvalue(), stderr.getvalue()
+
+
+def set_payload(registers: dict[int, int], payload: list[int]) -> None:
+    """Replace the first discovered model payload in a synthetic chain."""
+    model_base = SUNSPEC_BASE_TRANSPORT_ADDRESS + 4
+    registers.update(
+        {model_base + offset: value for offset, value in enumerate(payload)}
+    )
+
+
+def string_words(value: str, register_count: int) -> list[int]:
+    """Encode an ASCII string as SunSpec big-endian register words."""
+    data = value.encode("ascii").ljust(register_count * 2, b"\0")
+    return [
+        int.from_bytes(data[index : index + 2], "big")
+        for index in range(0, len(data), 2)
+    ]
+
+
+def decodable_payload(definition) -> list[int]:
+    """Create neutral words with valid scale factors for one definition."""
+    payload = [0] * definition.expected_length
+    for register in definition.registers:
+        if register.data_type is RegisterDataType.SUNSSF:
+            payload[register.offset] = 0
+    return payload
+
+
+def bitfield_definition(data_type: RegisterDataType) -> RegisterDefinition:
+    """Create one compact bitfield definition for presentation tests."""
+    return RegisterDefinition(
+        name="events",
+        offset=0,
+        size=1 if data_type is RegisterDataType.BITFIELD16 else 2,
+        data_type=data_type,
+        access=RegisterAccess.READ_ONLY,
+        bitfield={0x0001: "ready", 0x0002: "warning"},
+    )
+
+
+@pytest.mark.parametrize(
+    "data_type", [RegisterDataType.BITFIELD16, RegisterDataType.BITFIELD32]
+)
+def test_valid_zero_bitfield_is_displayed_as_none(
+    data_type: RegisterDataType,
+) -> None:
+    """A valid bitfield without active mapped bits is explicitly empty."""
+    assert _format_value(
+        bitfield_definition(data_type), RegisterValue(raw=0, value="")
+    ) == "none"
+
+
+@pytest.mark.parametrize(
+    "data_type", [RegisterDataType.BITFIELD16, RegisterDataType.BITFIELD32]
+)
+def test_invalid_bitfield_is_displayed_as_unavailable(
+    data_type: RegisterDataType,
+) -> None:
+    """An invalid bitfield retains the common unavailable presentation."""
+    assert _format_value(
+        bitfield_definition(data_type), RegisterValue(raw=0xFFFF, value=None)
+    ) == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "data_type", [RegisterDataType.BITFIELD16, RegisterDataType.BITFIELD32]
+)
+def test_active_bitfield_keeps_existing_labels(data_type: RegisterDataType) -> None:
+    """Active bitfield labels remain comma-separated and unchanged."""
+    assert _format_value(
+        bitfield_definition(data_type),
+        RegisterValue(raw=3, value="ready, warning"),
+    ) == "ready, warning"
 
 
 def test_successful_output_for_multiple_models_and_closes_transport() -> None:
@@ -207,3 +297,116 @@ def test_parser_accepts_device_id_and_dump_model() -> None:
 
     assert arguments.device_id == 200
     assert arguments.dump_model == 203
+
+
+def test_parser_accepts_decode_mode() -> None:
+    """Decoded inspection is an additive command-line switch."""
+    arguments = create_argument_parser().parse_args(
+        ["--host", "192.168.2.11", "--decode"]
+    )
+    assert arguments.decode
+
+
+def test_decode_model_1_prints_real_identity_and_unavailable_marker() -> None:
+    """Common Model identity strings use the production model decoder."""
+    registers = model_chain((1, 65))
+    payload = [0] * 65
+    payload[0:16] = string_words("Fronius", 16)
+    payload[16:32] = string_words("Symo GEN24 10.0", 16)
+    payload[40:48] = string_words("1.41.10-1", 8)
+    payload[48:64] = string_words("31520500", 16)
+    payload[64] = 0xFFFF
+    set_payload(registers, payload)
+    transport = FakeTransport(registers)
+
+    status, stdout, stderr = run_inspection(transport, decode=True)
+
+    assert status == 0
+    assert "Model 1 - Common" in stdout
+    assert "Mn                   Fronius" in stdout
+    assert "Md                   Symo GEN24 10.0" in stdout
+    assert "DA                   unavailable" in stdout
+    assert stderr == ""
+    assert transport.close_called
+
+
+def test_decode_fixed_model_prints_values_units_scale_factors_and_role() -> None:
+    """Decoded fixed values include units, technical scale factors, and role."""
+    registers = model_chain((103, 50))
+    payload = decodable_payload(MODEL_103)
+    payload[12] = 3354
+    payload[13] = 0xFFFF
+    payload[0] = 0xFFFF
+    set_payload(registers, payload)
+
+    status, stdout, _ = run_inspection(FakeTransport(registers), decode=True)
+
+    assert status == 0
+    assert "physical role: inverter" in stdout
+    assert "A                    unavailable A" in stdout
+    assert "W                    335.4 W" in stdout
+    assert "W_SF                 -1" in stdout
+    assert "  inverter" in stdout
+
+
+def test_decode_model_160_prints_runtime_semantics_and_capability() -> None:
+    """Repeating modules use core semantic classification without fixed counts."""
+    registers = model_chain((160, 88))
+    payload = decodable_payload(MODEL_160)
+    payload[6] = 4
+    for index, name in enumerate(("MPPT 1", "MPPT 2", "StCha 3", "StDisCha 4")):
+        base = 8 + index * 20
+        payload[base] = index + 1
+        payload[base + 1 : base + 9] = string_words(name, 8)
+    set_payload(registers, payload)
+
+    status, stdout, _ = run_inspection(FakeTransport(registers), decode=True)
+
+    assert status == 0
+    assert "module instance 3" in stdout
+    assert "IDStr                StDisCha 4" in stdout
+    assert "semantic kind: mppt" in stdout
+    assert "semantic kind: storage_charge" in stdout
+    assert "semantic kind: storage_discharge" in stdout
+    assert "physical role: storage" in stdout
+    assert "  mppt" in stdout
+
+
+def test_decode_model_203_uses_generic_chunked_reader() -> None:
+    """The 105-register meter model is read through generic safe chunks."""
+    registers = model_chain((203, 105))
+    set_payload(registers, decodable_payload(MODEL_203))
+    transport = FakeTransport(registers)
+
+    status, stdout, _ = run_inspection(transport, decode=True)
+
+    model_base = SUNSPEC_BASE_TRANSPORT_ADDRESS + 4
+    assert status == 0
+    assert (model_base, 100) in transport.reads
+    assert (model_base + 100, 5) in transport.reads
+    assert "Model 203" in stdout
+    assert "  meter" in stdout
+
+
+def test_decode_reports_length_mismatch_and_continues_with_other_models() -> None:
+    """A mismatched local definition is skipped without hiding later models."""
+    transport = FakeTransport(model_chain((1, 4), (203, 105)))
+
+    status, stdout, stderr = run_inspection(transport, decode=True)
+
+    assert status == 0
+    assert "Model 1: discovered length 4" in stderr
+    assert "expected length 65" in stderr
+    assert "Model 203" in stdout
+
+
+def test_decode_unknown_model_reports_and_continues() -> None:
+    """Unknown discovered models remain visible and do not abort decoding."""
+    transport = FakeTransport(model_chain((999, 2), (1, 65)))
+
+    status, stdout, stderr = run_inspection(transport, decode=True)
+
+    assert status == 0
+    assert "Model 999: no local definition available; skipped" in stdout
+    assert "Model 1 - Common" in stdout
+    assert stderr == ""

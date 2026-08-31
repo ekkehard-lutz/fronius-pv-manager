@@ -1,6 +1,7 @@
 """Tests for catalog-backed Home Assistant sensor entities."""
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 import pytest
 from homeassistant.components.sensor import (
@@ -27,7 +28,10 @@ from custom_components.fronius_pv_manager.register_maps import (
     MODEL_160,
     MODEL_203,
 )
-from custom_components.fronius_pv_manager.sensor import async_setup_entry
+from custom_components.fronius_pv_manager.sensor import (
+    FroniusPVSensor,
+    async_setup_entry,
+)
 from tests.runtime_fakes import FakeEntry, FakeHass, FakeTransport
 
 
@@ -153,6 +157,11 @@ async def test_physical_roles_create_separate_generic_devices_and_unique_ids() -
         "Fronius Smart Meter",
     }
     assert len({entity.unique_id for entity in selected}) == 3
+    assert {entity.unique_id for entity in selected} == {
+        "test-entry_inverter_model_103_w",
+        "test-entry_storage_model_124_chastate",
+        "test-entry_meter_model_203_w",
+    }
 
 
 @pytest.mark.asyncio
@@ -166,7 +175,8 @@ async def test_entity_state_tracks_latest_snapshot_without_transport_reads() -> 
     power = _by_register(entities, "W")[0]
 
     assert power.native_value == 123
-    assert "model_103_w" in power.unique_id
+    assert power.unique_id == "test-entry_inverter_model_103_w"
+    assert "model103-0" not in power.unique_id
     payload[12] = 456
     coordinator.data = FroniusPVCoordinatorData(
         discovered_models=coordinator.data.discovered_models,
@@ -174,6 +184,24 @@ async def test_entity_state_tracks_latest_snapshot_without_transport_reads() -> 
     )
     assert power.native_value == 456
     assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_fixed_unique_id_ignores_internal_model_occurrence() -> None:
+    """Snapshot occurrence remains an internal lookup coordinate only."""
+    coordinator, entities, _ = await _entities_for(_snapshot(MODEL_103))
+    power = _by_register(entities, "W")[0]
+    different_occurrence = replace(power._source, model_occurrence=7)
+
+    recreated = FroniusPVSensor(
+        coordinator,
+        "test-entry",
+        different_occurrence,
+    )
+
+    assert recreated.unique_id == power.unique_id
+    assert recreated.unique_id == "test-entry_inverter_model_103_w"
+    assert "model103-7" not in recreated.unique_id
 
 
 @pytest.mark.asyncio
@@ -238,5 +266,10 @@ async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> 
     assert all(entity._source.entity.device_role is None for entity in powers)
     assert {entity._source.instance_index for entity in powers} == {0, 1}
     assert len({entity.unique_id for entity in powers}) == 2
+    assert {entity.unique_id for entity in powers} == {
+        "test-entry_inverter_model_160_module_dcw_module_instance0",
+        "test-entry_storage_model_160_module_dcw_module_instance1",
+    }
+    assert all("model160-" not in entity.unique_id for entity in powers)
     register_names = {entity._source.register_name for entity in entities}
     assert all(name in register_names for name in ("DCA", "DCV", "DCW", "DCWH"))

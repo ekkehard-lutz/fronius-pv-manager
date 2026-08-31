@@ -162,7 +162,6 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
             entry_id,
             source.role.value,
             source.entity.key,
-            f"model{source.model_id}-{source.model_occurrence}",
         ]
         if source.block_name is not None:
             identity.extend((source.block_name, f"instance{source.instance_index}"))

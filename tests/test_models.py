@@ -19,6 +19,7 @@ from custom_components.fronius_pv_manager.models import (
     RepeatingBlockDefinition,
     SunSpecModelDefinition,
     ValueRange,
+    get_help_text,
 )
 
 
@@ -56,6 +57,67 @@ def test_valid_register_definition() -> None:
     assert definition.offset == 0
     assert definition.poll_class.value == "normal"
     assert definition.entity is entity
+    assert definition.help_text is None
+
+
+def test_register_definition_accepts_additional_help_text() -> None:
+    """Project explanations are optional and distinct from source descriptions."""
+    definition = register(
+        description="Technical description.",
+        help_text={
+            "en": "Additional human-readable explanation.",
+            "de": "Zusätzliche verständliche Erklärung.",
+        },
+    )
+
+    assert definition.description == "Technical description."
+    assert definition.help_text == {
+        "en": "Additional human-readable explanation.",
+        "de": "Zusätzliche verständliche Erklärung.",
+    }
+
+
+def test_help_text_mapping_is_defensively_frozen() -> None:
+    """Caller-owned translation mappings cannot mutate a definition afterward."""
+    translations = {"en": "English"}
+    definition = register(help_text=translations)
+    translations["en"] = "Changed"
+
+    assert definition.help_text == {"en": "English"}
+    with pytest.raises(TypeError):
+        definition.help_text["de"] = "Deutsch"  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    "help_text",
+    [
+        {},
+        {"de": "Deutsch"},
+        {"en": ""},
+        {"en": "English", "de": " "},
+        {"en": "English", "": "Empty key"},
+        {"EN": "English"},
+        {1: "English"},
+        {"en": 1},
+    ],
+)
+def test_invalid_help_text_mappings_are_rejected(help_text: object) -> None:
+    """Localized help requires non-empty lowercase keys and English text."""
+    with pytest.raises(ValueError, match="help_text"):
+        register(help_text=help_text)
+
+
+def test_get_help_text_uses_requested_language_and_english_fallback() -> None:
+    """Language selection normalizes common locale forms conservatively."""
+    definition = register(help_text={"en": "English", "de": "Deutsch"})
+
+    assert get_help_text(definition, "en") == "English"
+    assert get_help_text(definition, "de") == "Deutsch"
+    assert get_help_text(definition, "DE") == "Deutsch"
+    assert get_help_text(definition, "de-DE") == "Deutsch"
+    assert get_help_text(definition, "de_AT") == "Deutsch"
+    assert get_help_text(definition, "fr") == "English"
+    assert get_help_text(register(), "de") is None
 
 
 @pytest.mark.parametrize(

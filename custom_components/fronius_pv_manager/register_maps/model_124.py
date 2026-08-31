@@ -17,7 +17,7 @@ from ..models import (
     SunSpecModelDefinition,
     ValueRange,
 )
-from ._entity_catalog import attach_entities, entity
+from ._entity_catalog import attach_entities, attach_help_texts, entity
 
 
 def _register(
@@ -342,5 +342,18 @@ MODEL_124 = attach_entities(
             enabled=False,
             role=_ROLE,
         ),
+    },
+)
+MODEL_124 = attach_help_texts(
+    MODEL_124,
+    {
+        "ChaState": {
+            "en": "Available stored energy as a percentage of rated capacity.",
+            "de": "Verfügbare gespeicherte Energie in Prozent der Nennkapazität.",
+        },
+        "ChaGriSet": {
+            "en": "Selects whether charging from the grid is permitted.",
+            "de": "Legt fest, ob das Laden aus dem Netz zulässig ist.",
+        },
     },
 )

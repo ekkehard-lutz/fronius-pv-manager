@@ -15,7 +15,7 @@ from ..models import (
     RegisterDefinition,
     SunSpecModelDefinition,
 )
-from ._entity_catalog import attach_entities, entity
+from ._entity_catalog import attach_entities, attach_help_texts, entity
 
 
 def _register(
@@ -328,5 +328,22 @@ MODEL_203 = attach_entities(
             enabled=False,
             role=_ROLE,
         ),
+    },
+)
+MODEL_203 = attach_help_texts(
+    MODEL_203,
+    {
+        "W": {
+            "en": "Total active power measured by the meter.",
+            "de": "Vom Zähler gemessene gesamte Wirkleistung.",
+        },
+        "TotWhImp": {
+            "en": "Accumulated active energy imported through the meter.",
+            "de": "Über den Zähler bezogene, aufsummierte Wirkenergie.",
+        },
+        "TotWhExp": {
+            "en": "Accumulated active energy exported through the meter.",
+            "de": "Über den Zähler eingespeiste, aufsummierte Wirkenergie.",
+        },
     },
 )

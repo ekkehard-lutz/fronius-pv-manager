@@ -1,5 +1,6 @@
 """Internal helpers for attaching entity catalog metadata to register maps."""
 
+from collections.abc import Mapping
 from dataclasses import replace
 
 from ..models import (
@@ -68,3 +69,34 @@ def attach_entities(
             )
         )
     return replace(definition, registers=registers, repeating_blocks=tuple(blocks))
+
+
+def attach_help_texts(
+    definition: SunSpecModelDefinition,
+    fixed: dict[str, Mapping[str, str]],
+    *,
+    repeating: dict[str, dict[str, Mapping[str, str]]] | None = None,
+) -> SunSpecModelDefinition:
+    """Return a definition with project-maintained explanatory text attached."""
+    fixed_names = {register.name for register in definition.registers}
+    if unknown := set(fixed) - fixed_names:
+        raise ValueError(f"unknown fixed help registers: {sorted(unknown)}")
+    registers = tuple(
+        replace(register, help_text=fixed.get(register.name))
+        for register in definition.registers
+    )
+    repeating = repeating or {}
+    blocks = tuple(
+        replace(
+            block,
+            registers=tuple(
+                replace(
+                    register,
+                    help_text=repeating.get(block.name, {}).get(register.name),
+                )
+                for register in block.registers
+            ),
+        )
+        for block in definition.repeating_blocks
+    )
+    return replace(definition, registers=registers, repeating_blocks=blocks)

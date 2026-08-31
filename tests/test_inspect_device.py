@@ -21,7 +21,13 @@ from custom_components.fronius_pv_manager.sunspec import (
 from custom_components.fronius_pv_manager.transport import (
     ModbusConnectionError,
 )
-from tools.inspect_device import _format_value, create_argument_parser, inspect_device
+from tools.inspect_device import (
+    _format_value,
+    create_argument_parser,
+    inspect_device,
+    inspect_parameter,
+    main,
+)
 
 
 class FakeTransport:
@@ -305,6 +311,104 @@ def test_parser_accepts_decode_mode() -> None:
         ["--host", "192.168.2.11", "--decode"]
     )
     assert arguments.decode
+
+
+def run_parameter_info(
+    parameter: str, *, language: str = "en"
+) -> tuple[int, str, str]:
+    """Run metadata-only parameter lookup with captured streams."""
+    stdout = StringIO()
+    stderr = StringIO()
+    status = inspect_parameter(
+        parameter, language=language, stdout=stdout, stderr=stderr
+    )
+    return status, stdout.getvalue(), stderr.getvalue()
+
+
+def test_info_unique_bare_name_prints_representative_metadata_and_help() -> None:
+    """A unique semantic name prints technical, entity, and explanatory metadata."""
+    status, stdout, stderr = run_parameter_info("ChaState")
+
+    assert status == 0
+    assert "Model ID: 124" in stdout
+    assert "Model name: Storage" in stdout
+    assert "Register name: ChaState" in stdout
+    assert "Relative offset: 6" in stdout
+    assert "Data type: uint16" in stdout
+    assert "Access: read" in stdout
+    assert "Unit: % AhrRtg" in stdout
+    assert "Scale factor: ChaState_SF" in stdout
+    assert "Entity platform: sensor" in stdout
+    assert "Entity category: primary" in stdout
+    assert "Enabled by default: True" in stdout
+    assert "Physical device role: storage" in stdout
+    assert "Description:" in stdout
+    assert "Additional information: Available stored energy" in stdout
+    assert stderr == ""
+
+
+def test_info_ambiguous_bare_name_requires_model_qualification() -> None:
+    """Ambiguous names list qualified alternatives and return failure."""
+    status, _, stderr = run_parameter_info("W")
+    assert status != 0
+    assert "103:W" in stderr
+    assert "203:W" in stderr
+    assert "Use MODEL_ID:NAME" in stderr
+
+
+def test_info_qualified_name_selects_exact_model() -> None:
+    """A qualified register name selects only the requested model definition."""
+    status, stdout, stderr = run_parameter_info("203:W")
+    assert status == 0
+    assert "Model ID: 203" in stdout
+    assert "Total active power measured by the meter" in stdout
+    assert stderr == ""
+
+
+def test_info_selects_german_or_explicit_english_help_text() -> None:
+    """The info formatter localizes only its additional-information section."""
+    _, german, _ = run_parameter_info("124:ChaState", language="de")
+    _, english, _ = run_parameter_info("124:ChaState", language="en")
+
+    assert "Additional information: Verfügbare gespeicherte Energie" in german
+    assert "Additional information: Available stored energy" in english
+    assert "Description: Currently available energy" in german
+    assert "Description: Currently available energy" in english
+
+
+def test_info_unknown_language_falls_back_to_english() -> None:
+    """Missing translations silently use the canonical English explanation."""
+    _, stdout, _ = run_parameter_info("203:W", language="fr")
+    assert "Additional information: Total active power measured by the meter." in stdout
+
+
+def test_info_repeating_register_prints_block_and_runtime_role() -> None:
+    """Repeating-block parameters expose their relative metadata and help text."""
+    status, stdout, _ = run_parameter_info("160:DCW")
+    assert status == 0
+    assert "Repeating block: module" in stdout
+    assert "Relative offset: 11" in stdout
+    assert "Physical device role: none" in stdout
+    assert "runtime classification determines its physical owner" in stdout
+
+
+def test_info_reports_unknown_model_and_register() -> None:
+    """Unknown qualified coordinates fail concisely without a traceback."""
+    model_status, _, model_error = run_parameter_info("999:W")
+    register_status, _, register_error = run_parameter_info("103:Missing")
+    assert model_status != 0
+    assert "unknown model 999" in model_error
+    assert register_status != 0
+    assert "unknown register 103:Missing" in register_error
+
+
+def test_info_without_host_does_not_construct_transport(monkeypatch) -> None:
+    """Metadata-only CLI lookup returns before the Modbus path is entered."""
+    def fail_transport(*args, **kwargs):
+        raise AssertionError("transport must not be constructed")
+
+    monkeypatch.setattr("tools.inspect_device.ModbusTcpTransport", fail_transport)
+    assert main(["--info", "124:ChaState"]) == 0
 
 
 def test_decode_model_1_prints_real_identity_and_unavailable_marker() -> None:

@@ -65,6 +65,13 @@ Home Assistant will later consume this catalog. Model 160 repeated values keep
 their device role unset because runtime semantic classification determines
 whether each concrete module belongs to the inverter or storage device.
 
+Optional `help_text` metadata provides localized, project-maintained
+explanations while technical register descriptions remain English and
+unchanged. English is the canonical fallback; additional translations are
+optional. The inspector accepts `--info MODEL_ID:NAME --lang LANGUAGE`.
+Future Home Assistant presentation can use the same fallback helper to select
+text from the current user-interface language.
+
 ## Development
 
 Development targets Python 3.12. Run `ruff check .` for linting and `pytest -q`

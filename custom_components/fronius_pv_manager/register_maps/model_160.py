@@ -13,7 +13,7 @@ from ..models import (
     RepeatingBlockDefinition,
     SunSpecModelDefinition,
 )
-from ._entity_catalog import attach_entities, entity
+from ._entity_catalog import attach_entities, attach_help_texts, entity
 
 _READ_ONLY = RegisterAccess.READ_ONLY
 
@@ -226,6 +226,27 @@ MODEL_160 = attach_entities(
                 )
                 for name in ("Tms", "Tmp", "DCSt", "DCEvt")
             },
+        }
+    },
+)
+MODEL_160 = attach_help_texts(
+    MODEL_160,
+    {},
+    repeating={
+        "module": {
+            "DCW": (
+                {
+                    "en": (
+                        "DC power for one repeating module; runtime classification "
+                        "determines its physical owner."
+                    ),
+                    "de": (
+                        "DC-Leistung eines wiederholten Moduls; die "
+                        "Laufzeitklassifizierung "
+                        "bestimmt das zugehörige physische Gerät."
+                    ),
+                }
+            )
         }
     },
 )

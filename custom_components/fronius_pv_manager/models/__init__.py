@@ -16,6 +16,7 @@ from .register import (
     RepeatingBlockDefinition,
     SunSpecModelDefinition,
     ValueRange,
+    get_help_text,
 )
 from .role import PhysicalDeviceRole
 
@@ -36,4 +37,5 @@ __all__ = [
     "RepeatingBlockDefinition",
     "SunSpecModelDefinition",
     "ValueRange",
+    "get_help_text",
 ]

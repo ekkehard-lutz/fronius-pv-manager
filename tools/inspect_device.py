@@ -24,8 +24,11 @@ from custom_components.fronius_pv_manager.models import (  # noqa: E402
     RegisterDefinition,
     RegisterValue,
     SunSpecModelDefinition,
+    get_help_text,
 )
 from custom_components.fronius_pv_manager.register_maps import (  # noqa: E402
+    RegisterLookup,
+    find_registers,
     get_model_definition,
 )
 from custom_components.fronius_pv_manager.semantics import (  # noqa: E402
@@ -45,6 +48,102 @@ from custom_components.fronius_pv_manager.transport import (  # noqa: E402
 )
 
 TransportFactory = Callable[..., ModbusTcpTransport]
+
+
+def _format_mapping(mapping) -> str:
+    """Format immutable numeric metadata mappings deterministically."""
+    return ", ".join(f"{key}: {value}" for key, value in mapping.items())
+
+
+def _print_parameter_info(
+    match: RegisterLookup, stdout: TextIO, *, language: str = "en"
+) -> None:
+    """Print all available metadata for one exact register match."""
+    register = match.register
+    print(f"Model ID: {match.model_id}", file=stdout)
+    print(f"Model name: {match.model.name}", file=stdout)
+    print(f"Register name: {register.name}", file=stdout)
+    if match.block_name is not None:
+        print(f"Repeating block: {match.block_name}", file=stdout)
+    print(f"Relative offset: {register.offset}", file=stdout)
+    print(f"Data type: {register.data_type.value}", file=stdout)
+    print(f"Access: {register.access.value}", file=stdout)
+    print(f"Unit: {register.unit or 'none'}", file=stdout)
+    print(f"Scale factor: {register.scale_factor or 'none'}", file=stdout)
+    print(f"Polling class: {register.poll_class.value}", file=stdout)
+    if register.valid_range is None:
+        print("Valid range: none", file=stdout)
+    else:
+        value_range = register.valid_range
+        print(
+            f"Valid range: minimum={value_range.minimum}, "
+            f"maximum={value_range.maximum}, step={value_range.step}",
+            file=stdout,
+        )
+    print(
+        f"Enum mappings: {_format_mapping(register.enum) if register.enum else 'none'}",
+        file=stdout,
+    )
+    print(
+        "Bitfield mappings: "
+        f"{_format_mapping(register.bitfield) if register.bitfield else 'none'}",
+        file=stdout,
+    )
+    if register.entity is None:
+        print("Entity metadata: none", file=stdout)
+    else:
+        entity = register.entity
+        print(f"Entity platform: {entity.platform.value}", file=stdout)
+        print(f"Entity category: {entity.category.value}", file=stdout)
+        print(f"Enabled by default: {entity.enabled_by_default}", file=stdout)
+        role = entity.device_role.value if entity.device_role is not None else "none"
+        print(f"Physical device role: {role}", file=stdout)
+    print(f"Description: {register.description or 'not available'}", file=stdout)
+    if help_text := get_help_text(register, language):
+        print(f"Additional information: {help_text}", file=stdout)
+
+
+def inspect_parameter(
+    parameter: str,
+    *,
+    language: str = "en",
+    stdout: TextIO = sys.stdout,
+    stderr: TextIO = sys.stderr,
+) -> int:
+    """Resolve and print metadata without constructing a Modbus transport."""
+    model_id = None
+    name = parameter
+    if ":" in parameter:
+        model_text, name = parameter.split(":", 1)
+        try:
+            model_id = int(model_text)
+        except ValueError:
+            print(
+                f"Parameter lookup failed: invalid model ID {model_text!r}",
+                file=stderr,
+            )
+            return 1
+        if get_model_definition(model_id) is None:
+            print(f"Parameter lookup failed: unknown model {model_id}", file=stderr)
+            return 1
+
+    matches = find_registers(name, model_id=model_id)
+    if not matches:
+        qualified = f"{model_id}:{name}" if model_id is not None else name
+        print(f"Parameter lookup failed: unknown register {qualified}", file=stderr)
+        return 1
+    if model_id is None and len(matches) > 1:
+        choices = ", ".join(
+            f"{match.model_id}:{match.register.name}" for match in matches
+        )
+        print(
+            f"Parameter name {name!r} is ambiguous; matches: {choices}. "
+            "Use MODEL_ID:NAME.",
+            file=stderr,
+        )
+        return 1
+    _print_parameter_info(matches[0], stdout, language=language)
+    return 0
 
 
 def inspect_device(
@@ -247,7 +346,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Inspect the SunSpec model chain exposed by a Modbus TCP device."
     )
-    parser.add_argument("--host", required=True, help="Modbus TCP host name or address")
+    parser.add_argument("--host", help="Modbus TCP host name or address")
     parser.add_argument(
         "--port",
         type=int,
@@ -271,12 +370,28 @@ def create_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Decode supported discovered models using local register maps",
     )
+    parser.add_argument(
+        "--info",
+        metavar="PARAMETER",
+        help="Show metadata for NAME or MODEL_ID:NAME without connecting",
+    )
+    parser.add_argument(
+        "--lang",
+        default="en",
+        metavar="LANGUAGE",
+        help="Language for --info additional text (default: en)",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse command-line arguments and run device inspection."""
-    arguments = create_argument_parser().parse_args(argv)
+    parser = create_argument_parser()
+    arguments = parser.parse_args(argv)
+    if arguments.info is not None:
+        return inspect_parameter(arguments.info, language=arguments.lang)
+    if arguments.host is None:
+        parser.error("--host is required unless --info is used")
     return inspect_device(
         arguments.host,
         arguments.port,

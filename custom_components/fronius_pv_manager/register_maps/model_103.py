@@ -15,7 +15,7 @@ from ..models import (
     RegisterDefinition,
     SunSpecModelDefinition,
 )
-from ._entity_catalog import attach_entities, entity
+from ._entity_catalog import attach_entities, attach_help_texts, entity
 
 _INVERTER_STATES = {
     1: "Off",
@@ -352,6 +352,19 @@ MODEL_103 = attach_entities(
                 "TmpCab", "TmpSnk", "TmpTrns", "TmpOt", "StVnd", "Evt1", "Evt2",
                 "EvtVnd1", "EvtVnd2", "EvtVnd3", "EvtVnd4",
             )
+        },
+    },
+)
+MODEL_103 = attach_help_texts(
+    MODEL_103,
+    {
+        "W": {
+            "en": "Current AC active power reported by the inverter.",
+            "de": "Aktuelle vom Wechselrichter gemeldete AC-Wirkleistung.",
+        },
+        "WH": {
+            "en": "Accumulated lifetime AC energy reported by the inverter.",
+            "de": "Vom Wechselrichter gemeldete, insgesamt erzeugte AC-Energie.",
         },
     },
 )

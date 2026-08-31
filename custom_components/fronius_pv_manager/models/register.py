@@ -135,6 +135,7 @@ class RegisterDefinition:
     invalid_values: tuple[int, ...] = ()
     entity: EntityDefinition | None = None
     poll_class: PollClass = PollClass.NORMAL
+    help_text: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         """Validate the definition and freeze supplied metadata mappings."""
@@ -159,6 +160,39 @@ class RegisterDefinition:
             object.__setattr__(
                 self, "bitfield", MappingProxyType(dict(self.bitfield))
             )
+        if self.help_text is not None:
+            if any(
+                not isinstance(language, str) or not isinstance(text, str)
+                for language, text in self.help_text.items()
+            ):
+                raise ValueError("help_text keys and values must be strings")
+            if any(
+                not language or language != language.lower()
+                for language in self.help_text
+            ):
+                raise ValueError("help_text language codes must be non-empty lowercase")
+            if "en" not in self.help_text:
+                raise ValueError("help_text must contain an English 'en' entry")
+            if any(not text.strip() for text in self.help_text.values()):
+                raise ValueError("help_text translations must not be empty")
+            object.__setattr__(
+                self, "help_text", MappingProxyType(dict(self.help_text))
+            )
+
+
+def get_help_text(
+    definition: RegisterDefinition, language: str = "en"
+) -> str | None:
+    """Return localized explanatory text with conservative English fallback."""
+    if definition.help_text is None:
+        return None
+    normalized = language.replace("_", "-").lower()
+    candidates = (normalized, normalized.split("-", 1)[0], "en")
+    return next(
+        definition.help_text[candidate]
+        for candidate in candidates
+        if candidate in definition.help_text
+    )
 
 
 def _validate_register_layout(

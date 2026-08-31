@@ -152,6 +152,7 @@ def _decode_repeating_instance(
             invalid_values=register.invalid_values,
             entity=register.entity,
             poll_class=register.poll_class,
+            help_text=register.help_text,
         )
         raw_words = _register_words(absolute_register, payload)
         values[register.name] = _decode_with_scale_factor(

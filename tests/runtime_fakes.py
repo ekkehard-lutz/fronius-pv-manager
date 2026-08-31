@@ -21,6 +21,12 @@ class FakeConfigEntries:
         self.unloaded: list[tuple[object, tuple[object, ...]]] = []
         self.forward_error: Exception | None = None
         self.unload_result = True
+        self.entries_by_unique_id: dict[tuple[str, str], object] = {}
+        self.flow = FakeFlowManager()
+
+    def async_entry_for_domain_unique_id(self, domain, unique_id):
+        """Return a configured entry with the requested endpoint identity."""
+        return self.entries_by_unique_id.get((domain, unique_id))
 
     async def async_forward_entry_setups(self, entry, platforms) -> None:
         """Record platform forwarding or raise a configured failure."""
@@ -32,6 +38,17 @@ class FakeConfigEntries:
         """Record platform unloading and return its configured result."""
         self.unloaded.append((entry, tuple(platforms)))
         return self.unload_result
+
+
+class FakeFlowManager:
+    """Provide the minimal in-progress flow API used by ConfigFlow."""
+
+    def async_progress_by_handler(self, *args, **kwargs):
+        """Return no competing in-progress flows."""
+        return []
+
+    def async_abort(self, flow_id) -> None:
+        """Accept discovery-flow abort requests."""
 
 
 class FakeHass:

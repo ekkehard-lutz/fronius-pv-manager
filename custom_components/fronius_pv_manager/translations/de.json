@@ -1,3 +1,30 @@
 {
-  "title": "Fronius PV Manager"
+  "title": "Fronius PV Manager",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Fronius PV Manager",
+        "description": "Einen Fronius-Modbus-TCP-Endpunkt konfigurieren.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "device_ids": "Modbus-Geräte-IDs"
+        },
+        "data_description": {
+          "device_ids": "Kommagetrennte Modbus-Geräte-IDs, die erkannt werden sollen, zum Beispiel 1, 200."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Modbus-Endpunkt fehlgeschlagen.",
+      "invalid_host": "Einen Hostnamen oder eine IP-Adresse eingeben.",
+      "invalid_sunspec": "Ein konfiguriertes Gerät hat keine gültige SunSpec-Antwort geliefert.",
+      "invalid_device_ids": "Kommagetrennte Modbus-Geräte-IDs von 1 bis 247 ohne leere Einträge eingeben.",
+      "duplicate_device_ids": "Jede Modbus-Geräte-ID darf nur einmal eingegeben werden.",
+      "unknown": "Unerwarteter Fehler."
+    },
+    "abort": {
+      "already_configured": "Dieser Modbus-Endpunkt ist bereits konfiguriert."
+    }
+  }
 }

@@ -1,3 +1,30 @@
 {
-  "title": "Fronius PV Manager"
+  "title": "Fronius PV Manager",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Fronius PV Manager",
+        "description": "Configure one Fronius Modbus TCP endpoint.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "device_ids": "Modbus device IDs"
+        },
+        "data_description": {
+          "device_ids": "Comma-separated Modbus device IDs to discover, for example 1, 200."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the Modbus endpoint.",
+      "invalid_host": "Enter a host name or IP address.",
+      "invalid_sunspec": "A configured device did not return a valid SunSpec response.",
+      "invalid_device_ids": "Enter comma-separated Modbus device IDs from 1 through 247 without empty items.",
+      "duplicate_device_ids": "Each Modbus device ID may only be entered once.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Modbus endpoint is already configured."
+    }
+  }
 }

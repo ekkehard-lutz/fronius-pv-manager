@@ -201,6 +201,18 @@ def test_entity_definition_defaults_to_primary() -> None:
     definition = EntityDefinition(platform=EntityPlatform.SENSOR, key="power")
 
     assert definition.category is EntityCategoryHint.PRIMARY
+    assert definition.enabled_by_default
+
+
+def test_entity_definition_can_be_disabled_by_default() -> None:
+    """Catalog entries may remain available without cluttering the default view."""
+    definition = EntityDefinition(
+        platform=EntityPlatform.SENSOR,
+        key="specialist_value",
+        enabled_by_default=False,
+    )
+
+    assert not definition.enabled_by_default
 
 
 @pytest.mark.parametrize(

@@ -7,12 +7,15 @@ one-based documentation registers or zero-based transport addresses.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
     SunSpecModelDefinition,
 )
+from ._entity_catalog import attach_entities, entity
 
 
 def _register(
@@ -235,4 +238,22 @@ MODEL_120 = SunSpecModelDefinition(
     name="Nameplate",
     registers=_REGISTERS,
     expected_length=26,
+)
+
+MODEL_120 = attach_entities(
+    MODEL_120,
+    {
+        name: entity(
+            120,
+            name,
+            category=EntityCategoryHint.DIAGNOSTIC,
+            enabled=False,
+            role=PhysicalDeviceRole.INVERTER,
+        )
+        for name in (
+            "DERTyp", "WRtg", "VARtg", "VArRtgQ1", "VArRtgQ2", "VArRtgQ3",
+            "VArRtgQ4", "ARtg", "PFRtgQ1", "PFRtgQ2", "PFRtgQ3", "PFRtgQ4",
+            "WHRtg", "AhrRtg", "MaxChaRte", "MaxDisChaRte",
+        )
+    },
 )

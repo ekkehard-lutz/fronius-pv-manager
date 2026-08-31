@@ -7,12 +7,15 @@ fields read-only for this device, so this module records no writable access.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
     SunSpecModelDefinition,
 )
+from ._entity_catalog import attach_entities, entity
 
 
 def _register(
@@ -276,4 +279,23 @@ MODEL_121 = SunSpecModelDefinition(
     name="Basic Settings",
     registers=_REGISTERS,
     expected_length=30,
+)
+
+MODEL_121 = attach_entities(
+    MODEL_121,
+    {
+        name: entity(
+            121,
+            name,
+            category=EntityCategoryHint.CONFIG,
+            enabled=False,
+            role=PhysicalDeviceRole.INVERTER,
+        )
+        for name in (
+            "WMax", "VRef", "VRefOfs", "VMax", "VMin", "VAMax", "VArMaxQ1",
+            "VArMaxQ2", "VArMaxQ3", "VArMaxQ4", "WGra", "PFMinQ1", "PFMinQ2",
+            "PFMinQ3", "PFMinQ4", "VArAct", "ClcTotVA", "MaxRmpRte", "ECPNomHz",
+            "ConnPh",
+        )
+    },
 )

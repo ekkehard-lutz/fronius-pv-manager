@@ -7,12 +7,15 @@ read-only as documented by the Fronius Smart Meter Int+SF worksheet.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
     SunSpecModelDefinition,
 )
+from ._entity_catalog import attach_entities, entity
 
 
 def _register(
@@ -290,4 +293,40 @@ MODEL_203 = SunSpecModelDefinition(
     name="Wye-Connect Three-Phase Meter",
     registers=_REGISTERS,
     expected_length=105,
+)
+
+_ROLE = PhysicalDeviceRole.METER
+_ENABLED = {
+    "AphA", "AphB", "AphC", "W", "WphA", "WphB", "WphC", "PhVphA",
+    "PhVphB", "PhVphC", "Hz", "TotWhExp", "TotWhImp",
+}
+_PRIMARY = (
+    "A", "AphA", "AphB", "AphC", "PhV", "PhVphA", "PhVphB", "PhVphC",
+    "PPV", "PhVphAB", "PhVphBC", "PhVphCA", "Hz", "W", "WphA", "WphB",
+    "WphC", "VA", "VAphA", "VAphB", "VAphC", "VAR", "VARphA", "VARphB",
+    "VARphC", "PF", "PFphA", "PFphB", "PFphC", "TotWhExp", "TotWhExpPhA",
+    "TotWhExpPhB", "TotWhExpPhC", "TotWhImp", "TotWhImpPhA", "TotWhImpPhB",
+    "TotWhImpPhC", "TotVAhExp", "TotVAhExpPhA", "TotVAhExpPhB",
+    "TotVAhExpPhC", "TotVAhImp", "TotVAhImpPhA", "TotVAhImpPhB",
+    "TotVAhImpPhC", "TotVArhImpQ1", "TotVArhImpQ1PhA", "TotVArhImpQ1PhB",
+    "TotVArhImpQ1PhC", "TotVArhImpQ2", "TotVArhImpQ2PhA", "TotVArhImpQ2PhB",
+    "TotVArhImpQ2PhC", "TotVArhExpQ3", "TotVArhExpQ3PhA", "TotVArhExpQ3PhB",
+    "TotVArhExpQ3PhC", "TotVArhExpQ4", "TotVArhExpQ4PhA", "TotVArhExpQ4PhB",
+    "TotVArhExpQ4PhC",
+)
+MODEL_203 = attach_entities(
+    MODEL_203,
+    {
+        **{
+            name: entity(203, name, enabled=name in _ENABLED, role=_ROLE)
+            for name in _PRIMARY
+        },
+        "Evt": entity(
+            203,
+            "Evt",
+            category=EntityCategoryHint.DIAGNOSTIC,
+            enabled=False,
+            role=_ROLE,
+        ),
+    },
 )

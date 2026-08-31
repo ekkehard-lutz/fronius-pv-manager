@@ -7,12 +7,15 @@ one-based documentation registers or zero-based transport addresses.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
     SunSpecModelDefinition,
 )
+from ._entity_catalog import attach_entities, entity
 
 _INVERTER_STATES = {
     1: "Off",
@@ -302,4 +305,53 @@ MODEL_103 = SunSpecModelDefinition(
     name="Three-Phase Inverter Integer + Scale Factors",
     registers=_REGISTERS,
     expected_length=50,
+)
+
+_ROLE = PhysicalDeviceRole.INVERTER
+MODEL_103 = attach_entities(
+    MODEL_103,
+    {
+        **{
+            name: entity(
+                103,
+                name,
+                enabled=name
+                in {
+                    "AphA",
+                    "AphB",
+                    "AphC",
+                    "PPVphAB",
+                    "PPVphBC",
+                    "PPVphCA",
+                    "PhVphA",
+                    "PhVphB",
+                    "PhVphC",
+                    "W",
+                    "Hz",
+                    "WH",
+                    "DCW",
+                    "St",
+                },
+                role=_ROLE,
+            )
+            for name in (
+                "A", "AphA", "AphB", "AphC", "PPVphAB", "PPVphBC", "PPVphCA",
+                "PhVphA", "PhVphB", "PhVphC", "W", "Hz", "VA", "VAr", "PF",
+                "WH", "DCA", "DCV", "DCW", "St",
+            )
+        },
+        **{
+            name: entity(
+                103,
+                name,
+                category=EntityCategoryHint.DIAGNOSTIC,
+                enabled=False,
+                role=_ROLE,
+            )
+            for name in (
+                "TmpCab", "TmpSnk", "TmpTrns", "TmpOt", "StVnd", "Evt1", "Evt2",
+                "EvtVnd1", "EvtVnd2", "EvtVnd3", "EvtVnd4",
+            )
+        },
+    },
 )

@@ -8,12 +8,15 @@ descriptions.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
     SunSpecModelDefinition,
 )
+from ._entity_catalog import attach_entities, entity
 
 
 def _register(
@@ -261,4 +264,31 @@ MODEL_122 = SunSpecModelDefinition(
     name="Measurements and Status",
     registers=_REGISTERS,
     expected_length=44,
+)
+
+_ROLE = PhysicalDeviceRole.INVERTER
+MODEL_122 = attach_entities(
+    MODEL_122,
+    {
+        **{
+            name: entity(122, name, enabled=False, role=_ROLE)
+            for name in (
+                "ActWh", "ActVAh", "ActVArhQ1", "ActVArhQ2", "ActVArhQ3",
+                "ActVArhQ4", "VArAval", "WAval",
+            )
+        },
+        **{
+            name: entity(
+                122,
+                name,
+                category=EntityCategoryHint.DIAGNOSTIC,
+                enabled=False,
+                role=_ROLE,
+            )
+            for name in (
+                "PVConn", "StorConn", "ECPConn", "StSetLimMsk", "StActCtl",
+                "TmSrc", "Tms", "RtSt", "Ris",
+            )
+        },
+    },
 )

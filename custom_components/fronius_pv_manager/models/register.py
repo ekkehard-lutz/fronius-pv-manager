@@ -104,6 +104,7 @@ class EntityDefinition:
     entity_category: str | None = None
     device_role: PhysicalDeviceRole | None = None
     category: EntityCategoryHint = EntityCategoryHint.PRIMARY
+    enabled_by_default: bool = True
 
     def __post_init__(self) -> None:
         """Reject metadata that cannot identify an entity."""

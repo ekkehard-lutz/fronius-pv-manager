@@ -7,6 +7,9 @@ no transport writes, control sequencing, or Home Assistant entities.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    EntityPlatform,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
@@ -14,6 +17,7 @@ from ..models import (
     SunSpecModelDefinition,
     ValueRange,
 )
+from ._entity_catalog import attach_entities, entity
 
 
 def _register(
@@ -267,4 +271,51 @@ MODEL_123 = SunSpecModelDefinition(
     name="Immediate Controls",
     registers=_REGISTERS,
     expected_length=24,
+)
+
+_NUMBER_CONTROLS = {
+    "Conn_WinTms", "Conn_RvrtTms", "WMaxLimPct", "WMaxLimPct_WinTms",
+    "WMaxLimPct_RvrtTms", "OutPFSet", "OutPFSet_WinTms", "OutPFSet_RvrtTms",
+    "OutPFSet_RmpTms", "VArMaxPct", "VArPct_WinTms", "VArPct_RvrtTms",
+    "VArPct_RmpTms",
+}
+_SWITCH_CONTROLS = {"Conn", "WMaxLim_Ena", "OutPFSet_Ena", "VArPct_Ena"}
+MODEL_123 = attach_entities(
+    MODEL_123,
+    {
+        **{
+            name: entity(
+                123,
+                name,
+                platform=EntityPlatform.NUMBER,
+                category=EntityCategoryHint.CONFIG,
+                enabled=False,
+                role=PhysicalDeviceRole.INVERTER,
+            )
+            for name in _NUMBER_CONTROLS
+        },
+        **{
+            name: entity(
+                123,
+                name,
+                platform=EntityPlatform.SWITCH,
+                category=EntityCategoryHint.CONFIG,
+                enabled=False,
+                role=PhysicalDeviceRole.INVERTER,
+            )
+            for name in _SWITCH_CONTROLS
+        },
+        **{
+            name: entity(
+                123,
+                name,
+                category=EntityCategoryHint.CONFIG,
+                enabled=False,
+                role=PhysicalDeviceRole.INVERTER,
+            )
+            for name in (
+                "WMaxLimPct_RmpTms", "VArWMaxPct", "VArAvalPct", "VArPct_Mod"
+            )
+        },
+    },
 )

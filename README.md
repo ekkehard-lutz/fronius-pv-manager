@@ -52,6 +52,19 @@ important for battery and storage control.
 English and German localization are supported from the beginning. User-visible
 text will live in Home Assistant translation files rather than in Python logic.
 
+## Entity catalog
+
+Register maps contain a Home Assistant-independent catalog for values intended
+to become entities. Its four independent dimensions are the future platform,
+presentation category, whether the entity is enabled by default, and its
+physical device role. A register definition does not automatically imply an
+entity, and a disabled-by-default entity does not mean its register is
+unsupported. Raw register metadata remains visible in developer inspection.
+
+Home Assistant will later consume this catalog. Model 160 repeated values keep
+their device role unset because runtime semantic classification determines
+whether each concrete module belongs to the inverter or storage device.
+
 ## Development
 
 Development targets Python 3.12. Run `ruff check .` for linting and `pytest -q`

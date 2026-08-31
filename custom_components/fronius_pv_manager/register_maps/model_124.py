@@ -7,6 +7,9 @@ write path, control sequencing, or Home Assistant behavior.
 from collections.abc import Mapping
 
 from ..models import (
+    EntityCategoryHint,
+    EntityPlatform,
+    PhysicalDeviceRole,
     PollClass,
     RegisterAccess,
     RegisterDataType,
@@ -14,6 +17,7 @@ from ..models import (
     SunSpecModelDefinition,
     ValueRange,
 )
+from ._entity_catalog import attach_entities, entity
 
 
 def _register(
@@ -291,4 +295,52 @@ MODEL_124 = SunSpecModelDefinition(
     name="Storage",
     registers=_REGISTERS,
     expected_length=24,
+)
+
+_ROLE = PhysicalDeviceRole.STORAGE
+MODEL_124 = attach_entities(
+    MODEL_124,
+    {
+        **{
+            name: entity(
+                124,
+                name,
+                enabled=name in {"ChaState", "ChaSt"},
+                role=_ROLE,
+            )
+            for name in (
+                "WChaGra", "WDisChaGra", "ChaState", "StorAval", "InBatV",
+                "ChaSt",
+            )
+        },
+        "WChaMax": entity(
+            124,
+            "WChaMax",
+            category=EntityCategoryHint.DIAGNOSTIC,
+            enabled=False,
+            role=_ROLE,
+        ),
+        **{
+            name: entity(
+                124,
+                name,
+                platform=EntityPlatform.NUMBER,
+                category=EntityCategoryHint.CONFIG,
+                enabled=False,
+                role=_ROLE,
+            )
+            for name in (
+                "VAChaMax", "MinRsvPct", "OutWRte", "InWRte",
+                "InOutWRte_RvrtTms",
+            )
+        },
+        "ChaGriSet": entity(
+            124,
+            "ChaGriSet",
+            platform=EntityPlatform.SELECT,
+            category=EntityCategoryHint.CONFIG,
+            enabled=False,
+            role=_ROLE,
+        ),
+    },
 )

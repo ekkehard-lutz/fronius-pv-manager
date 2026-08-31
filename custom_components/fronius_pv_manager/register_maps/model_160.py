@@ -5,6 +5,7 @@ documentation register numbers or absolute Modbus transport addresses.
 """
 
 from ..models import (
+    EntityCategoryHint,
     PollClass,
     RegisterAccess,
     RegisterDataType,
@@ -12,6 +13,7 @@ from ..models import (
     RepeatingBlockDefinition,
     SunSpecModelDefinition,
 )
+from ._entity_catalog import attach_entities, entity
 
 _READ_ONLY = RegisterAccess.READ_ONLY
 
@@ -191,3 +193,40 @@ MODEL_160 = SunSpecModelDefinition(
     expected_length=88,
     repeating_blocks=(MODULE_BLOCK,),
 )
+
+MODEL_160 = attach_entities(
+    MODEL_160,
+    {
+        name: entity(
+            160,
+            name,
+            category=EntityCategoryHint.DIAGNOSTIC,
+            enabled=False,
+        )
+        for name in ("Evt", "N", "TmsPer")
+    },
+    repeating={
+        "module": {
+            **{
+                name: entity(
+                    160,
+                    name,
+                    enabled=True,
+                    block_name="module",
+                )
+                for name in ("DCA", "DCV", "DCW", "DCWH")
+            },
+            **{
+                name: entity(
+                    160,
+                    name,
+                    category=EntityCategoryHint.DIAGNOSTIC,
+                    enabled=False,
+                    block_name="module",
+                )
+                for name in ("Tms", "Tmp", "DCSt", "DCEvt")
+            },
+        }
+    },
+)
+MODULE_BLOCK = MODEL_160.repeating_blocks[0]

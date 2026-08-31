@@ -122,3 +122,72 @@ def test_client_exception_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
         transport.read_holding_registers(40000, 2)
 
     assert raised.value.__cause__ is failure
+
+
+def test_single_register_write_uses_public_client_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One word uses write_register with the configured device ID."""
+    response = SimpleNamespace(isError=lambda: False)
+    client = Mock()
+    client.write_register.return_value = response
+    transport = create_transport(monkeypatch, client)
+
+    transport.write_holding_registers(40100, (0x1234,))
+
+    client.write_register.assert_called_once_with(40100, 0x1234, device_id=7)
+    client.write_registers.assert_not_called()
+
+
+def test_multiple_register_write_uses_public_client_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Multiple words use write_registers in existing big-endian order."""
+    response = SimpleNamespace(isError=lambda: False)
+    client = Mock()
+    client.write_registers.return_value = response
+    transport = create_transport(monkeypatch, client)
+
+    transport.write_holding_registers(40100, (0x1234, 0x5678))
+
+    client.write_registers.assert_called_once_with(
+        40100, [0x1234, 0x5678], device_id=7
+    )
+    client.write_register.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("address", "values"),
+    [(-1, (1,)), (0, ()), (0, (-1,)), (0, (0x10000,)), (0, (True,))],
+)
+def test_invalid_register_writes_are_rejected(address, values) -> None:
+    """Transport coordinates and raw words are validated before client access."""
+    transport = object.__new__(ModbusTcpTransport)
+    with pytest.raises(ValueError):
+        transport.write_holding_registers(address, values)
+
+
+def test_write_exception_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pymodbus write exception is retained as the transport error cause."""
+    failure = OSError("connection lost")
+    client = Mock()
+    client.write_register.side_effect = failure
+    transport = create_transport(monkeypatch, client)
+
+    with pytest.raises(ModbusTransportError) as raised:
+        transport.write_holding_registers(40100, (1,))
+
+    assert raised.value.__cause__ is failure
+
+
+def test_write_error_response_becomes_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pymodbus write error response stays inside the transport boundary."""
+    response = SimpleNamespace(isError=lambda: True)
+    client = Mock()
+    client.write_register.return_value = response
+    transport = create_transport(monkeypatch, client)
+
+    with pytest.raises(ModbusTransportError, match="error response"):
+        transport.write_holding_registers(40100, (1,))

@@ -8,6 +8,7 @@ third address space and must be combined with a discovered model base before a
 transport read is made.
 """
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from pymodbus.client import ModbusTcpClient
@@ -97,6 +98,32 @@ class ModbusTcpTransport:
                 f"expected {count} registers but received {len(registers)}"
             )
         return registers
+
+    def write_holding_registers(
+        self, address: int, values: Sequence[int]
+    ) -> None:
+        """Write one contiguous range at a zero-based pymodbus address."""
+        if address < 0:
+            raise ValueError("transport address must not be negative")
+        words = tuple(values)
+        if not words:
+            raise ValueError("register values must not be empty")
+        if any(type(word) is not int or not 0 <= word <= 0xFFFF for word in words):
+            raise ValueError("register values must be integers from 0 through 65535")
+
+        try:
+            if len(words) == 1:
+                response = self._client.write_register(
+                    address, words[0], device_id=self._device_id
+                )
+            else:
+                response = self._client.write_registers(
+                    address, list(words), device_id=self._device_id
+                )
+        except Exception as err:
+            raise ModbusTransportError("holding-register write failed") from err
+        if response.isError():
+            raise ModbusTransportError("Modbus device returned an error response")
 
 
 def read_holding_registers_chunked(

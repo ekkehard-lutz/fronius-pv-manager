@@ -50,7 +50,51 @@ important for battery and storage control.
 The independent core provides symmetrical register decoding and encoding.
 Encoding validates write access, semantic ranges, scale factors, exact integer
 representation, and invalid SunSpec sentinels. Actual Modbus writes remain
-intentionally unimplemented.
+restricted to the explicit developer test workflow below; Home Assistant write
+behavior remains intentionally unimplemented.
+
+### Developer register write testing
+
+`tools/write_register.py` is a developer diagnostic utility, not a general raw
+Modbus writer. It accepts only qualified, fixed registers marked writable by a
+reviewed definition. Values pass through `encode_register_value`, including
+access, range, enum, scaling, representation, and sentinel validation. The
+tool always reads the current value before a possible write and verifies the
+decoded value afterward.
+
+Dry run is the default and never modifies the device:
+
+```powershell
+python tools\write_register.py `
+  --host 192.168.2.11 `
+  --device-id 1 `
+  --parameter 124:MinRsvPct `
+  --value 10
+```
+
+An actual write requires `--write` and interactive confirmation:
+
+```powershell
+python tools\write_register.py `
+  --host 192.168.2.11 `
+  --device-id 1 `
+  --parameter 124:MinRsvPct `
+  --value 10 `
+  --write
+```
+
+For automated developer testing, `--yes` bypasses only confirmation; it does
+not authorize a write without `--write`:
+
+```powershell
+python tools\write_register.py `
+  --host 192.168.2.11 `
+  --device-id 1 `
+  --parameter 124:MinRsvPct `
+  --value 10 `
+  --write `
+  --yes
+```
 
 ## Localization
 

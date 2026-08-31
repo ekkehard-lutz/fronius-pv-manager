@@ -12,6 +12,7 @@ from homeassistant.const import EntityCategory
 
 from custom_components.fronius_pv_manager.coordinator import (
     DecodedModelSnapshot,
+    DeviceSnapshot,
     FroniusPVCoordinator,
     FroniusPVCoordinatorData,
 )
@@ -59,10 +60,17 @@ def _coordinator_with(
     hass = FakeHass()
     entry = FakeEntry({})
     transport = FakeTransport({})
-    coordinator = FroniusPVCoordinator(hass, entry, transport)
+    coordinator = FroniusPVCoordinator(hass, entry, {1: transport})
     coordinator.data = FroniusPVCoordinatorData(
-        discovered_models=tuple(snapshot.discovered for snapshot in snapshots),
-        decoded_models=snapshots,
+        devices=(
+            DeviceSnapshot(
+                device_id=1,
+                discovered_models=tuple(
+                    snapshot.discovered for snapshot in snapshots
+                ),
+                decoded_models=snapshots,
+            ),
+        ),
     )
     coordinator.last_update_success = True
     entry.runtime_data = coordinator
@@ -79,6 +87,37 @@ async def _entities_for(*snapshots: DecodedModelSnapshot):
         lambda new_entities: entities.extend(new_entities),
     )
     return coordinator, entities, transport
+
+
+async def _entities_for_devices(
+    snapshots_by_device: dict[int, tuple[DecodedModelSnapshot, ...]],
+):
+    """Set up sensors for multiple independent Modbus device snapshots."""
+    hass = FakeHass()
+    entry = FakeEntry({})
+    transports = {
+        device_id: FakeTransport({}) for device_id in snapshots_by_device
+    }
+    coordinator = FroniusPVCoordinator(hass, entry, transports)
+    coordinator.data = FroniusPVCoordinatorData(
+        devices=tuple(
+            DeviceSnapshot(
+                device_id,
+                tuple(snapshot.discovered for snapshot in snapshots),
+                snapshots,
+            )
+            for device_id, snapshots in snapshots_by_device.items()
+        )
+    )
+    coordinator.last_update_success = True
+    entry.runtime_data = coordinator
+    entities = []
+    await async_setup_entry(
+        hass,
+        entry,
+        lambda new_entities: entities.extend(new_entities),
+    )
+    return coordinator, entities, transports
 
 
 def _by_register(entities, name: str):
@@ -117,8 +156,9 @@ async def test_unknown_discovered_model_creates_no_entities() -> None:
     """Unsupported discovery topology remains visible only to the coordinator."""
     coordinator, entry, _ = _coordinator_with()
     coordinator.data = FroniusPVCoordinatorData(
-        discovered_models=(DiscoveredModel(999, 2, 45000),),
-        decoded_models=(),
+        devices=(
+            DeviceSnapshot(1, (DiscoveredModel(999, 2, 45000),), ()),
+        ),
     )
     entities = []
 
@@ -158,10 +198,72 @@ async def test_physical_roles_create_separate_generic_devices_and_unique_ids() -
     }
     assert len({entity.unique_id for entity in selected}) == 3
     assert {entity.unique_id for entity in selected} == {
-        "test-entry_inverter_model_103_w",
-        "test-entry_storage_model_124_chastate",
-        "test-entry_meter_model_203_w",
+        "test-entry_device1_inverter_model_103_w",
+        "test-entry_device1_storage_model_124_chastate",
+        "test-entry_device1_meter_model_203_w",
     }
+
+
+@pytest.mark.asyncio
+async def test_two_meter_device_ids_create_distinct_devices_and_entities() -> None:
+    """Identical meter catalogs remain distinct through Modbus device identity."""
+    _, entities, _ = await _entities_for_devices(
+        {200: (_snapshot(MODEL_203),), 201: (_snapshot(MODEL_203),)}
+    )
+    meter_power = _by_register(entities, "W")
+
+    assert len(meter_power) == 2
+    assert {entity.unique_id for entity in meter_power} == {
+        "test-entry_device200_meter_model_203_w",
+        "test-entry_device201_meter_model_203_w",
+    }
+    assert {
+        next(iter(entity.device_info["identifiers"])) for entity in meter_power
+    } == {
+        ("fronius_pv_manager", "test-entry:device200:meter"),
+        ("fronius_pv_manager", "test-entry:device201:meter"),
+    }
+    assert {entity.device_info["name"] for entity in meter_power} == {
+        "Fronius Smart Meter 200",
+        "Fronius Smart Meter 201",
+    }
+
+
+@pytest.mark.asyncio
+async def test_partial_device_failure_only_marks_its_entities_unavailable() -> None:
+    """Per-device status prevents one failed meter from hiding another meter."""
+    coordinator, entities, _ = await _entities_for_devices(
+        {200: (_snapshot(MODEL_203),), 201: (_snapshot(MODEL_203),)}
+    )
+    meter_power = _by_register(entities, "W")
+    first_data, second_data = coordinator.data.devices
+    coordinator.data = FroniusPVCoordinatorData(
+        devices=(
+            first_data,
+            DeviceSnapshot(
+                second_data.device_id,
+                second_data.discovered_models,
+                (),
+                available=False,
+            ),
+        )
+    )
+
+    availability = {
+        entity._source.device_id: entity.available for entity in meter_power
+    }
+    assert availability == {200: True, 201: False}
+
+
+@pytest.mark.asyncio
+async def test_inverter_only_snapshot_creates_no_storage_device() -> None:
+    """Storage remains optional when no storage semantics are discovered."""
+    _, entities, _ = await _entities_for_devices({1: (_snapshot(MODEL_103),)})
+
+    assert entities
+    assert all(
+        entity._source.role is not PhysicalDeviceRole.STORAGE for entity in entities
+    )
 
 
 @pytest.mark.asyncio
@@ -175,12 +277,17 @@ async def test_entity_state_tracks_latest_snapshot_without_transport_reads() -> 
     power = _by_register(entities, "W")[0]
 
     assert power.native_value == 123
-    assert power.unique_id == "test-entry_inverter_model_103_w"
+    assert power.unique_id == "test-entry_device1_inverter_model_103_w"
     assert "model103-0" not in power.unique_id
     payload[12] = 456
     coordinator.data = FroniusPVCoordinatorData(
-        discovered_models=coordinator.data.discovered_models,
-        decoded_models=(_snapshot(MODEL_103, payload),),
+        devices=(
+            DeviceSnapshot(
+                1,
+                coordinator.data.devices[0].discovered_models,
+                (_snapshot(MODEL_103, payload),),
+            ),
+        ),
     )
     assert power.native_value == 456
     assert transport.read_calls == []
@@ -200,7 +307,7 @@ async def test_fixed_unique_id_ignores_internal_model_occurrence() -> None:
     )
 
     assert recreated.unique_id == power.unique_id
-    assert recreated.unique_id == "test-entry_inverter_model_103_w"
+    assert recreated.unique_id == "test-entry_device1_inverter_model_103_w"
     assert "model103-7" not in recreated.unique_id
 
 
@@ -267,8 +374,8 @@ async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> 
     assert {entity._source.instance_index for entity in powers} == {0, 1}
     assert len({entity.unique_id for entity in powers}) == 2
     assert {entity.unique_id for entity in powers} == {
-        "test-entry_inverter_model_160_module_dcw_module_instance0",
-        "test-entry_storage_model_160_module_dcw_module_instance1",
+        "test-entry_device1_inverter_model_160_module_dcw_module_instance0",
+        "test-entry_device1_storage_model_160_module_dcw_module_instance1",
     }
     assert all("model160-" not in entity.unique_id for entity in powers)
     register_names = {entity._source.register_name for entity in entities}

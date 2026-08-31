@@ -70,6 +70,7 @@ _UNIT_METADATA = {
 class SensorSource:
     """Immutable coordinates for a value in the latest coordinator snapshot."""
 
+    device_id: int
     model_id: int
     model_occurrence: int
     register_name: str
@@ -87,60 +88,77 @@ async def async_setup_entry(
 ) -> None:
     """Create catalog-backed sensors from the first coordinator snapshot."""
     coordinator = entry.runtime_data
+    sources = _sensor_sources(coordinator)
+    devices_by_role: dict[PhysicalDeviceRole, set[int]] = {}
+    for source in sources:
+        devices_by_role.setdefault(source.role, set()).add(source.device_id)
     async_add_entities(
-        FroniusPVSensor(coordinator, entry.entry_id, source)
-        for source in _sensor_sources(coordinator)
+        FroniusPVSensor(
+            coordinator,
+            entry.entry_id,
+            source,
+            distinguish_device_name=len(devices_by_role[source.role]) > 1,
+        )
+        for source in sources
     )
 
 
 def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ...]:
     """Build stable source descriptors without retaining decoded values."""
     sources = []
-    occurrences: dict[int, int] = {}
-    for snapshot in coordinator.data.decoded_models:
-        model_id = snapshot.discovered.model_id
-        occurrence = occurrences.get(model_id, 0)
-        occurrences[model_id] = occurrence + 1
-        for register in snapshot.definition.registers:
-            entity = register.entity
-            if (
-                entity is None
-                or entity.platform is not EntityPlatform.SENSOR
-                or entity.device_role is None
-            ):
-                continue
-            sources.append(
-                SensorSource(
-                    model_id=model_id,
-                    model_occurrence=occurrence,
-                    register_name=register.name,
-                    register=register,
-                    entity=entity,
-                    role=entity.device_role,
-                )
-            )
-        for block in snapshot.definition.repeating_blocks:
-            definitions = {register.name: register for register in block.registers}
-            for instance in snapshot.decoded.repeating.get(block.name, ()):
-                classified = classify_model_160_module(instance)
-                if classified.physical_role is None:
+    for device in coordinator.data.devices:
+        occurrences: dict[int, int] = {}
+        for snapshot in device.decoded_models:
+            model_id = snapshot.discovered.model_id
+            occurrence = occurrences.get(model_id, 0)
+            occurrences[model_id] = occurrence + 1
+            for register in snapshot.definition.registers:
+                entity = register.entity
+                if (
+                    entity is None
+                    or entity.platform is not EntityPlatform.SENSOR
+                    or entity.device_role is None
+                ):
                     continue
-                for register in definitions.values():
-                    entity = register.entity
-                    if entity is None or entity.platform is not EntityPlatform.SENSOR:
-                        continue
-                    sources.append(
-                        SensorSource(
-                            model_id=model_id,
-                            model_occurrence=occurrence,
-                            register_name=register.name,
-                            register=register,
-                            entity=entity,
-                            role=classified.physical_role,
-                            block_name=block.name,
-                            instance_index=instance.instance_index,
-                        )
+                sources.append(
+                    SensorSource(
+                        device_id=device.device_id,
+                        model_id=model_id,
+                        model_occurrence=occurrence,
+                        register_name=register.name,
+                        register=register,
+                        entity=entity,
+                        role=entity.device_role,
                     )
+                )
+            for block in snapshot.definition.repeating_blocks:
+                definitions = {
+                    register.name: register for register in block.registers
+                }
+                for instance in snapshot.decoded.repeating.get(block.name, ()):
+                    classified = classify_model_160_module(instance)
+                    if classified.physical_role is None:
+                        continue
+                    for register in definitions.values():
+                        entity = register.entity
+                        if (
+                            entity is None
+                            or entity.platform is not EntityPlatform.SENSOR
+                        ):
+                            continue
+                        sources.append(
+                            SensorSource(
+                                device_id=device.device_id,
+                                model_id=model_id,
+                                model_occurrence=occurrence,
+                                register_name=register.name,
+                                register=register,
+                                entity=entity,
+                                role=classified.physical_role,
+                                block_name=block.name,
+                                instance_index=instance.instance_index,
+                            )
+                        )
     return tuple(sources)
 
 
@@ -154,12 +172,15 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
         coordinator: FroniusPVCoordinator,
         entry_id: str,
         source: SensorSource,
+        *,
+        distinguish_device_name: bool = False,
     ) -> None:
         super().__init__(coordinator)
         self._source = source
         self.entity_description = _entity_description(source.register, source.entity)
         identity = [
             entry_id,
+            f"device{source.device_id}",
             source.role.value,
             source.entity.key,
         ]
@@ -167,17 +188,49 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
             identity.extend((source.block_name, f"instance{source.instance_index}"))
         self._attr_unique_id = "_".join(identity)
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry_id}:{source.role.value}")},
+            identifiers={
+                (
+                    DOMAIN,
+                    f"{entry_id}:device{source.device_id}:{source.role.value}",
+                )
+            },
             manufacturer="Fronius",
-            name=_DEVICE_NAMES[source.role],
+            name=(
+                f"{_DEVICE_NAMES[source.role]} {source.device_id}"
+                if distinguish_device_name
+                else _DEVICE_NAMES[source.role]
+            ),
         )
+
+    @property
+    def available(self) -> bool:
+        """Combine endpoint refresh status with this device's poll status."""
+        device = next(
+            (
+                device
+                for device in self.coordinator.data.devices
+                if device.device_id == self._source.device_id
+            ),
+            None,
+        )
+        return super().available and device is not None and device.available
 
     @property
     def native_value(self):
         """Read the current decoded semantic value from coordinator data."""
+        device = next(
+            (
+                device
+                for device in self.coordinator.data.devices
+                if device.device_id == self._source.device_id
+            ),
+            None,
+        )
+        if device is None:
+            return None
         matching = [
             snapshot
-            for snapshot in self.coordinator.data.decoded_models
+            for snapshot in device.decoded_models
             if snapshot.discovered.model_id == self._source.model_id
         ]
         if self._source.model_occurrence >= len(matching):

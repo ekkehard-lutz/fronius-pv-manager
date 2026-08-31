@@ -11,6 +11,7 @@ from custom_components.fronius_pv_manager import (
 )
 from custom_components.fronius_pv_manager.const import (
     CONF_DEVICE_ID,
+    CONF_DEVICE_IDS,
     CONF_HOST,
     CONF_PORT,
 )
@@ -157,3 +158,118 @@ async def test_failed_platform_unload_keeps_runtime_active(monkeypatch) -> None:
     assert entry.runtime_data is coordinator
     assert not coordinator._shutdown_requested
     assert transport.close_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_multiple_configured_device_ids_create_independent_transports(
+    monkeypatch,
+) -> None:
+    """The new generic device ID tuple drives discovery for each participant."""
+    registers_1, _ = model_chain((103, 50))
+    registers_200, _ = model_chain((203, 105))
+    transports = {
+        1: FakeTransport(registers_1),
+        200: FakeTransport(registers_200),
+    }
+    factory_calls = []
+
+    def factory(host, *, port, device_id):
+        factory_calls.append((host, port, device_id))
+        return transports[device_id]
+
+    monkeypatch.setattr(integration_module, "ModbusTcpTransport", factory)
+    hass = FakeHass()
+    entry = FakeEntry(
+        {
+            CONF_HOST: "192.0.2.30",
+            CONF_PORT: 1502,
+            CONF_DEVICE_IDS: (1, 200),
+        }
+    )
+
+    assert await async_setup_entry(hass, entry)
+
+    assert factory_calls == [
+        ("192.0.2.30", 1502, 1),
+        ("192.0.2.30", 1502, 200),
+    ]
+    assert [device.device_id for device in entry.runtime_data.data.devices] == [
+        1,
+        200,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_multi_device_platform_failure_closes_all_transports(
+    monkeypatch,
+) -> None:
+    """Forwarding rollback releases every device context owned by the entry."""
+    registers_1, _ = model_chain((103, 50))
+    registers_200, _ = model_chain((203, 105))
+    transports = {
+        1: FakeTransport(registers_1),
+        200: FakeTransport(registers_200),
+    }
+    monkeypatch.setattr(
+        integration_module,
+        "ModbusTcpTransport",
+        lambda host, *, port, device_id: transports[device_id],
+    )
+    hass = FakeHass()
+    hass.config_entries.forward_error = RuntimeError("platform setup failed")
+    entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
+
+    with pytest.raises(RuntimeError, match="platform setup failed"):
+        await async_setup_entry(hass, entry)
+
+    assert all(transport.close_calls == 1 for transport in transports.values())
+
+
+@pytest.mark.asyncio
+async def test_multi_device_discovery_failure_closes_all_transports(
+    monkeypatch,
+) -> None:
+    """Discovery rollback closes contexts created before and after the failure."""
+    registers, _ = model_chain((103, 50))
+    transports = {
+        1: FakeTransport(registers),
+        200: FakeTransport(registers, connection_error=True),
+    }
+    monkeypatch.setattr(
+        integration_module,
+        "ModbusTcpTransport",
+        lambda host, *, port, device_id: transports[device_id],
+    )
+    entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
+
+    with pytest.raises(ConfigEntryNotReady):
+        await async_setup_entry(FakeHass(), entry)
+
+    assert all(transport.close_calls == 1 for transport in transports.values())
+
+
+@pytest.mark.asyncio
+async def test_multi_device_unload_closes_all_or_preserves_all(monkeypatch) -> None:
+    """Platform unload outcome consistently owns every device transport."""
+    registers_1, _ = model_chain((103, 50))
+    registers_200, _ = model_chain((203, 105))
+    transports = {
+        1: FakeTransport(registers_1),
+        200: FakeTransport(registers_200),
+    }
+    monkeypatch.setattr(
+        integration_module,
+        "ModbusTcpTransport",
+        lambda host, *, port, device_id: transports[device_id],
+    )
+    hass = FakeHass()
+    entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
+    await async_setup_entry(hass, entry)
+    hass.config_entries.unload_result = False
+
+    assert not await async_unload_entry(hass, entry)
+    assert all(transport.close_calls == 0 for transport in transports.values())
+
+    hass.config_entries.unload_result = True
+    assert await async_unload_entry(hass, entry)
+    assert all(transport.close_calls == 1 for transport in transports.values())

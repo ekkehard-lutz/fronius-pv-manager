@@ -6,7 +6,14 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, DEFAULT_PORT, DEFAULT_UNIT_ID
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_DEVICE_IDS,
+    CONF_HOST,
+    CONF_PORT,
+    DEFAULT_PORT,
+    DEFAULT_UNIT_ID,
+)
 from .coordinator import FroniusPVCoordinator
 from .sunspec import SunSpecDiscoveryError
 from .transport import ModbusTcpTransport, ModbusTransportError
@@ -17,16 +24,32 @@ PLATFORMS = (Platform.SENSOR,)
 type FroniusPVConfigEntry = ConfigEntry[FroniusPVCoordinator]
 
 
+def _configured_device_ids(entry: FroniusPVConfigEntry) -> tuple[int, ...]:
+    """Normalize new multi-device data with the development fallback key."""
+    configured = entry.data.get(CONF_DEVICE_IDS)
+    if configured is None:
+        return (entry.data.get(CONF_DEVICE_ID, DEFAULT_UNIT_ID),)
+    device_ids = tuple(configured)
+    if not device_ids:
+        raise ValueError("at least one Modbus device ID must be configured")
+    if len(set(device_ids)) != len(device_ids):
+        raise ValueError("Modbus device IDs must be unique")
+    return device_ids
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: FroniusPVConfigEntry
 ) -> bool:
     """Connect, discover once, and perform the first coordinator refresh."""
-    transport = ModbusTcpTransport(
-        entry.data[CONF_HOST],
-        port=entry.data.get(CONF_PORT, DEFAULT_PORT),
-        device_id=entry.data.get(CONF_DEVICE_ID, DEFAULT_UNIT_ID),
-    )
-    coordinator = FroniusPVCoordinator(hass, entry, transport)
+    transports = {
+        device_id: ModbusTcpTransport(
+            entry.data[CONF_HOST],
+            port=entry.data.get(CONF_PORT, DEFAULT_PORT),
+            device_id=device_id,
+        )
+        for device_id in _configured_device_ids(entry)
+    }
+    coordinator = FroniusPVCoordinator(hass, entry, transports)
     try:
         await coordinator.async_discover()
         await coordinator.async_config_entry_first_refresh()

@@ -420,6 +420,41 @@ async def test_entity_defaults_categories_and_sensor_metadata() -> None:
 
 
 @pytest.mark.asyncio
+async def test_inverter_state_uses_translatable_enum_options() -> None:
+    """Decoded SunSpec labels become stable HA enum option identifiers."""
+    payload = [0] * 50
+    payload[36] = 4
+    _, entities, transport = await _entities_for(_snapshot(MODEL_103, payload))
+    state = _by_register(entities, "St")[0]
+
+    assert state.entity_description.translation_key == "model_103_st"
+    assert state.device_class is SensorDeviceClass.ENUM
+    assert state.options == [
+        "off",
+        "sleeping",
+        "starting",
+        "mppt",
+        "throttled",
+        "shutting_down",
+        "fault",
+        "standby",
+    ]
+    assert state.native_value == "mppt"
+    assert state.unique_id == "test-entry_device1_inverter_model_103_st"
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_inverter_state_is_safe() -> None:
+    """An unmapped future numeric state produces unknown instead of an error."""
+    payload = [0] * 50
+    payload[36] = 9
+    _, entities, _ = await _entities_for(_snapshot(MODEL_103, payload))
+
+    assert _by_register(entities, "St")[0].native_value is None
+
+
+@pytest.mark.asyncio
 async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> None:
     """Recognized repeated modules create sensors on their classified devices."""
     payload = [0] * 88
@@ -530,3 +565,56 @@ def test_home_assistant_translation_structures_cover_catalog_sensors() -> None:
     } <= key_sets[0]
     assert documents[0]["device"].keys() == documents[1]["device"].keys()
     assert documents[1]["device"].keys() == documents[2]["device"].keys()
+
+
+def test_storage_names_and_inverter_state_translations() -> None:
+    """Storage compounds and operating states are natural in both languages."""
+    root = Path(__file__).parents[1] / "custom_components" / "fronius_pv_manager"
+    english = json.loads(
+        (root / "translations/en.json").read_text(encoding="utf-8")
+    )["entity"]["sensor"]
+    german = json.loads(
+        (root / "translations/de.json").read_text(encoding="utf-8")
+    )["entity"]["sensor"]
+    assert english["model_160_storage_charging_dcw"]["name"] == (
+        "Storage charging power"
+    )
+    assert english["model_160_storage_discharging_dcwh"]["name"] == (
+        "Storage discharging lifetime energy"
+    )
+    expected_german = {
+        "model_124_chast": "Speicher-Ladestatus",
+        "model_160_storage_charging_dca": "Speicher-Ladestrom",
+        "model_160_storage_charging_dcv": "Speicher-Ladespannung",
+        "model_160_storage_charging_dcw": "Speicher-Ladeleistung",
+        "model_160_storage_charging_dcwh": "Speicher-Ladeenergie gesamt",
+        "model_160_storage_discharging_dca": "Speicher-Entladestrom",
+        "model_160_storage_discharging_dcv": "Speicher-Entladespannung",
+        "model_160_storage_discharging_dcw": "Speicher-Entladeleistung",
+        "model_160_storage_discharging_dcwh": "Speicher-Entladeenergie gesamt",
+    }
+    assert {
+        key: german[key]["name"] for key in expected_german
+    } == expected_german
+    expected_options = {
+        "off",
+        "sleeping",
+        "starting",
+        "mppt",
+        "throttled",
+        "shutting_down",
+        "fault",
+        "standby",
+    }
+    assert set(english["model_103_st"]["state"]) == expected_options
+    assert set(german["model_103_st"]["state"]) == expected_options
+    assert german["model_103_st"]["state"] == {
+        "off": "Aus",
+        "sleeping": "Schlafmodus",
+        "starting": "Startet",
+        "mppt": "MPPT",
+        "throttled": "Leistungsbegrenzt",
+        "shutting_down": "Fährt herunter",
+        "fault": "Fehler",
+        "standby": "Bereitschaft",
+    }

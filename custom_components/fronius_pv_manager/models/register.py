@@ -106,6 +106,7 @@ class EntityDefinition:
     category: EntityCategoryHint = EntityCategoryHint.PRIMARY
     enabled_by_default: bool = True
     translation_key: str | None = None
+    translate_enum_values: bool = False
 
     def __post_init__(self) -> None:
         """Reject metadata that cannot identify an entity."""

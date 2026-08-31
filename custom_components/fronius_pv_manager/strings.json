@@ -113,7 +113,17 @@
         "name": "AC voltage L3-L1"
       },
       "model_103_st": {
-        "name": "Operating state"
+        "name": "Operating state",
+        "state": {
+          "off": "Off",
+          "sleeping": "Sleeping",
+          "starting": "Starting",
+          "mppt": "MPPT",
+          "throttled": "Throttled",
+          "shutting_down": "Shutting down",
+          "fault": "Fault",
+          "standby": "Standby"
+        }
       },
       "model_103_stvnd": {
         "name": "Vendor operating state"

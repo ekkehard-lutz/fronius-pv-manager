@@ -113,7 +113,17 @@
         "name": "Spannung L3-L1"
       },
       "model_103_st": {
-        "name": "Betriebszustand"
+        "name": "Betriebszustand",
+        "state": {
+          "off": "Aus",
+          "sleeping": "Schlafmodus",
+          "starting": "Startet",
+          "mppt": "MPPT",
+          "throttled": "Leistungsbegrenzt",
+          "shutting_down": "Fährt herunter",
+          "fault": "Fehler",
+          "standby": "Bereitschaft"
+        }
       },
       "model_103_stvnd": {
         "name": "Herstellerspezifischer Betriebszustand"
@@ -320,19 +330,19 @@
         "name": "Ladezustand"
       },
       "model_124_inbatv": {
-        "name": "Internal battery Spannung"
+        "name": "Interne Batteriespannung"
       },
       "model_124_storaval": {
-        "name": "Verf�gbar storage above reserve"
+        "name": "Verfügbarer Speicher oberhalb der Reserve"
       },
       "model_124_wchagra": {
-        "name": "Maximal Laden Rate"
+        "name": "Maximale Laderate"
       },
       "model_124_wchamax": {
         "name": "Maximale Speicher-Ladeleistung"
       },
       "model_124_wdischagra": {
-        "name": "Maximal Entladen Rate"
+        "name": "Maximale Entladerate"
       },
       "model_160_evt": {
         "name": "Ereignis flags"
@@ -389,52 +399,52 @@
         "name": "Number of modules"
       },
       "model_160_storage_charging_dca": {
-        "name": "Speicher-LadeStrom"
+        "name": "Speicher-Ladestrom"
       },
       "model_160_storage_charging_dcevt": {
-        "name": "Speicher-LadeEreignisflags"
+        "name": "Speicher-Ladeereignisflags"
       },
       "model_160_storage_charging_dcst": {
-        "name": "Speicher-LadeBetriebszustand"
+        "name": "Speicher-Ladebetriebszustand"
       },
       "model_160_storage_charging_dcv": {
-        "name": "Speicher-LadeSpannung"
+        "name": "Speicher-Ladespannung"
       },
       "model_160_storage_charging_dcw": {
-        "name": "Speicher-LadeLeistung"
+        "name": "Speicher-Ladeleistung"
       },
       "model_160_storage_charging_dcwh": {
-        "name": "Speicher-LadeEnergie gesamt"
+        "name": "Speicher-Ladeenergie gesamt"
       },
       "model_160_storage_charging_tmp": {
-        "name": "Speicher-LadeTemperatur"
+        "name": "Speicher-Ladetemperatur"
       },
       "model_160_storage_charging_tms": {
-        "name": "Speicher-LadeZeitstempel"
+        "name": "Speicher-Ladezeitstempel"
       },
       "model_160_storage_discharging_dca": {
-        "name": "Speicher-EntladeStrom"
+        "name": "Speicher-Entladestrom"
       },
       "model_160_storage_discharging_dcevt": {
-        "name": "Speicher-EntladeEreignisflags"
+        "name": "Speicher-Entladeereignisflags"
       },
       "model_160_storage_discharging_dcst": {
-        "name": "Speicher-EntladeBetriebszustand"
+        "name": "Speicher-Entladebetriebszustand"
       },
       "model_160_storage_discharging_dcv": {
-        "name": "Speicher-EntladeSpannung"
+        "name": "Speicher-Entladespannung"
       },
       "model_160_storage_discharging_dcw": {
-        "name": "Speicher-EntladeLeistung"
+        "name": "Speicher-Entladeleistung"
       },
       "model_160_storage_discharging_dcwh": {
-        "name": "Speicher-EntladeEnergie gesamt"
+        "name": "Speicher-Entladeenergie gesamt"
       },
       "model_160_storage_discharging_tmp": {
-        "name": "Speicher-EntladeTemperatur"
+        "name": "Speicher-Entladetemperatur"
       },
       "model_160_storage_discharging_tms": {
-        "name": "Speicher-EntladeZeitstempel"
+        "name": "Speicher-Entladezeitstempel"
       },
       "model_160_tmsper": {
         "name": "Zeitstamp period"

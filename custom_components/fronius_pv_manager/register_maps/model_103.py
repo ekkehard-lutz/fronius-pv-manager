@@ -333,6 +333,7 @@ MODEL_103 = attach_entities(
                     "St",
                 },
                 role=_ROLE,
+                translate_enum_values=name == "St",
             )
             for name in (
                 "A", "AphA", "AphB", "AphC", "PPVphAB", "PPVphBC", "PPVphCA",

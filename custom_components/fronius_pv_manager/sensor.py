@@ -1,5 +1,6 @@
 """Read-only sensor entities backed exclusively by coordinator data."""
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -267,7 +268,15 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
             if index is None or index >= len(instances):
                 return None
             value = instances[index].values.get(self._source.register_name)
-        return value.value if value is not None else None
+        if value is None:
+            return None
+        if self._source.entity.translate_enum_values:
+            if not isinstance(value.value, str):
+                return None
+            option = _enum_option(value.value)
+            options = self.entity_description.options
+            return option if options is not None and option in options else None
+        return value.value
 
 
 def _entity_description(
@@ -278,6 +287,15 @@ def _entity_description(
 ) -> SensorEntityDescription:
     """Map neutral catalog metadata to conservative Home Assistant metadata."""
     unit, device_class, state_class = _sensor_metadata(register, entity)
+    options = None
+    if entity.translate_enum_values:
+        device_class = SensorDeviceClass.ENUM
+        state_class = None
+        options = (
+            [_enum_option(label) for label in register.enum.values()]
+            if register.enum is not None
+            else []
+        )
     category = {
         EntityCategoryHint.DIAGNOSTIC: EntityCategory.DIAGNOSTIC,
         EntityCategoryHint.CONFIG: EntityCategory.CONFIG,
@@ -289,6 +307,7 @@ def _entity_description(
         device_class=device_class,
         state_class=state_class,
         native_unit_of_measurement=unit,
+        options=options,
         entity_category=category,
         entity_registry_enabled_default=entity.enabled_by_default,
     )
@@ -399,3 +418,8 @@ def _model_160_translation_key(
         Model160ModuleKind.STORAGE_DISCHARGE: "storage_discharging",
     }[kind]
     return f"model_160_{semantic}_{register_name.lower()}"
+
+
+def _enum_option(label: str) -> str:
+    """Normalize one decoded enum label to a stable HA option identifier."""
+    return re.sub(r"[^a-z0-9]+", "_", label.casefold()).strip("_")

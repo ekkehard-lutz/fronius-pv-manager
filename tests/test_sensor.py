@@ -1,7 +1,9 @@
 """Tests for catalog-backed Home Assistant sensor entities."""
 
+import json
 from collections.abc import Iterable
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from homeassistant.components.sensor import (
@@ -24,10 +26,12 @@ from custom_components.fronius_pv_manager.models import (
     SunSpecModelDefinition,
 )
 from custom_components.fronius_pv_manager.register_maps import (
+    MODEL_1,
     MODEL_103,
     MODEL_124,
     MODEL_160,
     MODEL_203,
+    MODEL_DEFINITIONS_BY_ID,
 )
 from custom_components.fronius_pv_manager.sensor import (
     FroniusPVSensor,
@@ -134,6 +138,23 @@ def _string_words(value: str, size: int) -> tuple[int, ...]:
     )
 
 
+def _model_1_payload(
+    *,
+    manufacturer: str = "Fronius",
+    model: str = "Test inverter",
+    version: str = "1.2.3",
+    serial: str = "SERIAL123",
+) -> list[int]:
+    """Build representative decoded physical identity metadata."""
+    payload = [0] * 65
+    payload[0:16] = _string_words(manufacturer, 16)
+    payload[16:32] = _string_words(model, 16)
+    payload[40:48] = _string_words(version, 8)
+    payload[48:64] = _string_words(serial, 16)
+    payload[64] = 1
+    return payload
+
+
 @pytest.mark.asyncio
 async def test_setup_creates_only_catalog_sensor_entities() -> None:
     """Scale factors and non-sensor catalog entries do not create sensors."""
@@ -191,12 +212,17 @@ async def test_physical_roles_create_separate_generic_devices_and_unique_ids() -
         next(iter(entity.device_info["identifiers"])) for entity in selected
     }
     assert len(identifiers) == 3
-    assert {entity.device_info["name"] for entity in selected} == {
-        "Fronius Inverter",
-        "Fronius Storage",
-        "Fronius Smart Meter",
+    assert {entity.device_info["translation_key"] for entity in selected} == {
+        "inverter_device",
+        "storage_device",
+        "meter_device",
     }
     assert len({entity.unique_id for entity in selected}) == 3
+    assert {entity.entity_description.translation_key for entity in selected} == {
+        "model_103_w",
+        "model_124_chastate",
+        "model_203_w",
+    }
     assert {entity.unique_id for entity in selected} == {
         "test-entry_device1_inverter_model_103_w",
         "test-entry_device1_storage_model_124_chastate",
@@ -223,10 +249,50 @@ async def test_two_meter_device_ids_create_distinct_devices_and_entities() -> No
         ("fronius_pv_manager", "test-entry:device200:meter"),
         ("fronius_pv_manager", "test-entry:device201:meter"),
     }
-    assert {entity.device_info["name"] for entity in meter_power} == {
-        "Fronius Smart Meter 200",
-        "Fronius Smart Meter 201",
+    assert {entity.device_info["translation_key"] for entity in meter_power} == {
+        "meter_device_with_id",
     }
+    assert {
+        entity.device_info["translation_placeholders"]["device_id"]
+        for entity in meter_power
+    } == {"200", "201"}
+
+
+@pytest.mark.asyncio
+async def test_model_1_identity_populates_physical_device_info() -> None:
+    """Already-decoded Common Model metadata presents the physical inverter."""
+    _, entities, _ = await _entities_for(
+        _snapshot(MODEL_1, _model_1_payload()),
+        _snapshot(MODEL_103),
+    )
+    power = _by_register(entities, "W")[0]
+
+    assert power.device_info["manufacturer"] == "Fronius"
+    assert power.device_info["model"] == "Test inverter"
+    assert power.device_info["name"] == "Test inverter"
+    assert power.device_info["serial_number"] == "SERIAL123"
+    assert power.device_info["sw_version"] == "1.2.3"
+    assert power.device_info["identifiers"] == {
+        ("fronius_pv_manager", "test-entry:device1:inverter")
+    }
+
+
+@pytest.mark.asyncio
+async def test_blank_identity_uses_localized_fallback_without_fabrication() -> None:
+    """Unknown product metadata remains unset instead of being guessed."""
+    _, entities, _ = await _entities_for(
+        _snapshot(MODEL_1),
+        _snapshot(MODEL_103),
+        _snapshot(MODEL_124),
+    )
+    inverter = _by_register(entities, "W")[0]
+    storage = _by_register(entities, "ChaState")[0]
+
+    assert inverter.device_info["translation_key"] == "inverter_device"
+    assert "manufacturer" not in inverter.device_info
+    assert storage.device_info["translation_key"] == "storage_device"
+    assert "manufacturer" not in storage.device_info
+    assert "model" not in storage.device_info
 
 
 @pytest.mark.asyncio
@@ -341,6 +407,7 @@ async def test_entity_defaults_categories_and_sensor_metadata() -> None:
     frequency = _by_register(entities, "Hz")[0]
     temperature = _by_register(entities, "TmpCab")[0]
     assert power.device_class is SensorDeviceClass.POWER
+    assert power.entity_description.translation_key == "model_103_w"
     assert power.state_class is SensorStateClass.MEASUREMENT
     assert energy.device_class is SensorDeviceClass.ENERGY
     assert energy.state_class is SensorStateClass.TOTAL_INCREASING
@@ -378,5 +445,88 @@ async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> 
         "test-entry_device1_storage_model_160_module_dcw_module_instance1",
     }
     assert all("model160-" not in entity.unique_id for entity in powers)
+    assert {entity.entity_description.translation_key for entity in powers} == {
+        "model_160_mppt_dcw",
+        "model_160_storage_charging_dcw",
+    }
+    mppt = next(
+        entity
+        for entity in powers
+        if entity._source.role is PhysicalDeviceRole.INVERTER
+    )
+    assert mppt.entity_description.translation_placeholders == {"number": "1"}
     register_names = {entity._source.register_name for entity in entities}
     assert all(name in register_names for name in ("DCA", "DCV", "DCW", "DCWH"))
+
+
+@pytest.mark.asyncio
+async def test_model_160_semantics_name_mppt_and_storage_flows_distinctly() -> None:
+    """Classifier semantics select numbered MPPT and directional storage names."""
+    payload = [0] * 88
+    payload[6] = 4
+    names = ("MPPT west", "StCha", "MPPT east", "StDisCha")
+    for instance, name in enumerate(names):
+        base = 8 + instance * 20
+        payload[base] = instance + 1
+        payload[base + 1 : base + 9] = _string_words(name, 8)
+    _, entities, _ = await _entities_for(_snapshot(MODEL_160, payload))
+    powers = _by_register(entities, "DCW")
+    energy = _by_register(entities, "DCWH")
+
+    mppt_powers = [
+        entity
+        for entity in powers
+        if entity.entity_description.translation_key == "model_160_mppt_dcw"
+    ]
+    assert [
+        entity.entity_description.translation_placeholders for entity in mppt_powers
+    ] == [{"number": "1"}, {"number": "2"}]
+    assert {entity.entity_description.translation_key for entity in powers} == {
+        "model_160_mppt_dcw",
+        "model_160_storage_charging_dcw",
+        "model_160_storage_discharging_dcw",
+    }
+    assert {entity.entity_description.translation_key for entity in energy} == {
+        "model_160_mppt_dcwh",
+        "model_160_storage_charging_dcwh",
+        "model_160_storage_discharging_dcwh",
+    }
+    assert {entity.unique_id for entity in powers} == {
+        "test-entry_device1_inverter_model_160_module_dcw_module_instance0",
+        "test-entry_device1_storage_model_160_module_dcw_module_instance1",
+        "test-entry_device1_inverter_model_160_module_dcw_module_instance2",
+        "test-entry_device1_storage_model_160_module_dcw_module_instance3",
+    }
+
+
+def test_home_assistant_translation_structures_cover_catalog_sensors() -> None:
+    """Canonical and localized files contain the same complete sensor keys."""
+    root = Path(__file__).parents[1] / "custom_components" / "fronius_pv_manager"
+    documents = [
+        json.loads((root / path).read_text(encoding="utf-8"))
+        for path in ("strings.json", "translations/en.json", "translations/de.json")
+    ]
+    key_sets = [set(document["entity"]["sensor"]) for document in documents]
+    assert key_sets[0] == key_sets[1] == key_sets[2]
+    expected = set()
+    for model in MODEL_DEFINITIONS_BY_ID.values():
+        registers = list(model.registers)
+        registers.extend(
+            register
+            for block in model.repeating_blocks
+            for register in block.registers
+        )
+        expected.update(
+            register.entity.translation_key
+            for register in registers
+            if register.entity is not None
+            and register.entity.platform is EntityPlatform.SENSOR
+        )
+    assert expected <= key_sets[0]
+    assert {
+        "model_160_mppt_dcw",
+        "model_160_storage_charging_dcw",
+        "model_160_storage_discharging_dcw",
+    } <= key_sets[0]
+    assert documents[0]["device"].keys() == documents[1]["device"].keys()
+    assert documents[1]["device"].keys() == documents[2]["device"].keys()

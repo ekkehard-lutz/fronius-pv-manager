@@ -105,11 +105,14 @@ class EntityDefinition:
     device_role: PhysicalDeviceRole | None = None
     category: EntityCategoryHint = EntityCategoryHint.PRIMARY
     enabled_by_default: bool = True
+    translation_key: str | None = None
 
     def __post_init__(self) -> None:
         """Reject metadata that cannot identify an entity."""
         if not self.key.strip():
             raise ValueError("entity key must not be empty")
+        if self.translation_key is not None and not self.translation_key.strip():
+            raise ValueError("entity translation key must not be empty")
 
 
 @dataclass(frozen=True, slots=True)

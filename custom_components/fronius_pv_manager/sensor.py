@@ -1,6 +1,7 @@
 """Read-only sensor entities backed exclusively by coordinator data."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -33,13 +34,7 @@ from .models import (
     RegisterDataType,
     RegisterDefinition,
 )
-from .semantics import classify_model_160_module
-
-_DEVICE_NAMES = {
-    PhysicalDeviceRole.INVERTER: "Fronius Inverter",
-    PhysicalDeviceRole.STORAGE: "Fronius Storage",
-    PhysicalDeviceRole.METER: "Fronius Smart Meter",
-}
+from .semantics import Model160ModuleKind, classify_model_160_module
 
 _UNIT_METADATA = {
     "W": (UnitOfPower.WATT, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
@@ -67,6 +62,16 @@ _UNIT_METADATA = {
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceMetadata:
+    """Optional physical identity decoded from Common Model 1."""
+
+    manufacturer: str | None
+    model: str | None
+    serial_number: str | None
+    sw_version: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class SensorSource:
     """Immutable coordinates for a value in the latest coordinator snapshot."""
 
@@ -77,6 +82,9 @@ class SensorSource:
     register: RegisterDefinition
     entity: EntityDefinition
     role: PhysicalDeviceRole
+    translation_key: str
+    translation_placeholders: dict[str, str] | None = None
+    device_metadata: DeviceMetadata | None = None
     block_name: str | None = None
     instance_index: int | None = None
 
@@ -107,6 +115,7 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
     """Build stable source descriptors without retaining decoded values."""
     sources = []
     for device in coordinator.data.devices:
+        device_metadata = _device_metadata(device.decoded_models)
         occurrences: dict[int, int] = {}
         for snapshot in device.decoded_models:
             model_id = snapshot.discovered.model_id
@@ -118,6 +127,7 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
                     entity is None
                     or entity.platform is not EntityPlatform.SENSOR
                     or entity.device_role is None
+                    or entity.translation_key is None
                 ):
                     continue
                 sources.append(
@@ -129,21 +139,27 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
                         register=register,
                         entity=entity,
                         role=entity.device_role,
+                        translation_key=entity.translation_key,
+                        device_metadata=device_metadata,
                     )
                 )
             for block in snapshot.definition.repeating_blocks:
                 definitions = {
                     register.name: register for register in block.registers
                 }
+                mppt_number = 0
                 for instance in snapshot.decoded.repeating.get(block.name, ()):
                     classified = classify_model_160_module(instance)
                     if classified.physical_role is None:
                         continue
+                    if classified.semantic_kind is Model160ModuleKind.MPPT:
+                        mppt_number += 1
                     for register in definitions.values():
                         entity = register.entity
                         if (
                             entity is None
                             or entity.platform is not EntityPlatform.SENSOR
+                            or entity.translation_key is None
                         ):
                             continue
                         sources.append(
@@ -155,6 +171,17 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
                                 register=register,
                                 entity=entity,
                                 role=classified.physical_role,
+                                translation_key=_model_160_translation_key(
+                                    classified.semantic_kind,
+                                    register.name,
+                                ),
+                                translation_placeholders=(
+                                    {"number": str(mppt_number)}
+                                    if classified.semantic_kind
+                                    is Model160ModuleKind.MPPT
+                                    else None
+                                ),
+                                device_metadata=device_metadata,
                                 block_name=block.name,
                                 instance_index=instance.instance_index,
                             )
@@ -177,7 +204,12 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
     ) -> None:
         super().__init__(coordinator)
         self._source = source
-        self.entity_description = _entity_description(source.register, source.entity)
+        self.entity_description = _entity_description(
+            source.register,
+            source.entity,
+            source.translation_key,
+            source.translation_placeholders,
+        )
         identity = [
             entry_id,
             f"device{source.device_id}",
@@ -187,19 +219,10 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
         if source.block_name is not None:
             identity.extend((source.block_name, f"instance{source.instance_index}"))
         self._attr_unique_id = "_".join(identity)
-        self._attr_device_info = DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{entry_id}:device{source.device_id}:{source.role.value}",
-                )
-            },
-            manufacturer="Fronius",
-            name=(
-                f"{_DEVICE_NAMES[source.role]} {source.device_id}"
-                if distinguish_device_name
-                else _DEVICE_NAMES[source.role]
-            ),
+        self._attr_device_info = _device_info(
+            entry_id,
+            source,
+            distinguish_device_name,
         )
 
     @property
@@ -248,7 +271,10 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
 
 
 def _entity_description(
-    register: RegisterDefinition, entity: EntityDefinition
+    register: RegisterDefinition,
+    entity: EntityDefinition,
+    translation_key: str,
+    translation_placeholders: dict[str, str] | None,
 ) -> SensorEntityDescription:
     """Map neutral catalog metadata to conservative Home Assistant metadata."""
     unit, device_class, state_class = _sensor_metadata(register, entity)
@@ -258,7 +284,8 @@ def _entity_description(
     }.get(entity.category)
     return SensorEntityDescription(
         key=entity.key,
-        name=register.description or register.name,
+        translation_key=translation_key,
+        translation_placeholders=translation_placeholders,
         device_class=device_class,
         state_class=state_class,
         native_unit_of_measurement=unit,
@@ -293,3 +320,82 @@ def _sensor_metadata(
             SensorStateClass.TOTAL_INCREASING,
         )
     return _UNIT_METADATA.get(register.unit, (register.unit, None, None))
+
+
+def _clean_metadata_value(value: Any) -> str | None:
+    """Return one non-empty decoded metadata string."""
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _device_metadata(
+    snapshots: tuple,
+) -> DeviceMetadata | None:
+    """Read optional identity solely from an already-decoded Common Model 1."""
+    common = next(
+        (snapshot for snapshot in snapshots if snapshot.discovered.model_id == 1),
+        None,
+    )
+    if common is None:
+        return None
+    fixed = common.decoded.fixed
+    return DeviceMetadata(
+        manufacturer=_clean_metadata_value(fixed["Mn"].value),
+        model=_clean_metadata_value(fixed["Md"].value),
+        serial_number=_clean_metadata_value(fixed["SN"].value),
+        sw_version=_clean_metadata_value(fixed["Vr"].value),
+    )
+
+
+def _device_info(
+    entry_id: str,
+    source: SensorSource,
+    distinguish_name: bool,
+) -> DeviceInfo:
+    """Build localized fallback or decoded physical device presentation."""
+    identifiers = {
+        (DOMAIN, f"{entry_id}:device{source.device_id}:{source.role.value}")
+    }
+    metadata = (
+        source.device_metadata
+        if source.role is not PhysicalDeviceRole.STORAGE
+        else None
+    )
+    if metadata is not None and metadata.model is not None:
+        return DeviceInfo(
+            identifiers=identifiers,
+            manufacturer=metadata.manufacturer,
+            model=metadata.model,
+            serial_number=metadata.serial_number,
+            sw_version=metadata.sw_version,
+            name=metadata.model,
+        )
+    translation_key = f"{source.role.value}_device"
+    placeholders = None
+    if distinguish_name:
+        translation_key += "_with_id"
+        placeholders = {"device_id": str(source.device_id)}
+    info: dict[str, Any] = {
+        "identifiers": identifiers,
+        "translation_key": translation_key,
+        "translation_placeholders": placeholders,
+    }
+    if metadata is not None:
+        if metadata.manufacturer is not None:
+            info["manufacturer"] = metadata.manufacturer
+        if metadata.serial_number is not None:
+            info["serial_number"] = metadata.serial_number
+        if metadata.sw_version is not None:
+            info["sw_version"] = metadata.sw_version
+    return DeviceInfo(**info)
+
+
+def _model_160_translation_key(
+    kind: Model160ModuleKind, register_name: str
+) -> str:
+    """Select presentation semantics from the existing module classifier."""
+    semantic = {
+        Model160ModuleKind.MPPT: "mppt",
+        Model160ModuleKind.STORAGE_CHARGE: "storage_charging",
+        Model160ModuleKind.STORAGE_DISCHARGE: "storage_discharging",
+    }[kind]
+    return f"model_160_{semantic}_{register_name.lower()}"

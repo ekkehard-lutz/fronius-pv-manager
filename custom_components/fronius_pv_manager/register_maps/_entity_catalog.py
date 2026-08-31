@@ -24,9 +24,11 @@ def entity(
 ) -> EntityDefinition:
     """Create stable Home Assistant-independent entity metadata."""
     block = f"_{block_name}" if block_name is not None else ""
+    key = f"model_{model_id}{block}_{register_name.lower()}"
     return EntityDefinition(
         platform=platform,
-        key=f"model_{model_id}{block}_{register_name.lower()}",
+        key=key,
+        translation_key=key,
         category=category,
         enabled_by_default=enabled,
         device_role=role,

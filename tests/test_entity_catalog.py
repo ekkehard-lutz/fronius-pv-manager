@@ -263,3 +263,18 @@ def test_duplicate_inverter_energy_is_disabled_by_default() -> None:
     """Model 103 remains the preferred default lifetime inverter energy source."""
     assert register(MODEL_103, "WH").entity.enabled_by_default
     assert not register(MODEL_122, "ActWh").entity.enabled_by_default
+
+
+def test_sensor_catalog_entries_have_neutral_translation_keys() -> None:
+    """Every catalog sensor references stable presentation semantics."""
+    for model in MODELS:
+        registers = list(model.registers)
+        registers.extend(
+            register
+            for block in model.repeating_blocks
+            for register in block.registers
+        )
+        for item in registers:
+            entity = item.entity
+            if entity is not None and entity.platform is EntityPlatform.SENSOR:
+                assert entity.translation_key == entity.key

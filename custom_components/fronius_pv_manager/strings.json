@@ -26,5 +26,605 @@
     "abort": {
       "already_configured": "This Modbus endpoint is already configured."
     }
+  },
+  "device": {
+    "inverter_device": {
+      "name": "Inverter"
+    },
+    "inverter_device_with_id": {
+      "name": "Inverter {device_id}"
+    },
+    "meter_device": {
+      "name": "Smart meter"
+    },
+    "meter_device_with_id": {
+      "name": "Smart meter {device_id}"
+    },
+    "storage_device": {
+      "name": "Storage"
+    },
+    "storage_device_with_id": {
+      "name": "Storage {device_id}"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "model_103_a": {
+        "name": "AC current"
+      },
+      "model_103_apha": {
+        "name": "Phase A current"
+      },
+      "model_103_aphb": {
+        "name": "Phase B current"
+      },
+      "model_103_aphc": {
+        "name": "Phase C current"
+      },
+      "model_103_dca": {
+        "name": "DC current"
+      },
+      "model_103_dcv": {
+        "name": "DC voltage"
+      },
+      "model_103_dcw": {
+        "name": "DC power"
+      },
+      "model_103_evt1": {
+        "name": "SunSpec event flags"
+      },
+      "model_103_evt2": {
+        "name": "Reserved for future use"
+      },
+      "model_103_evtvnd1": {
+        "name": "Customer-view event severity flags"
+      },
+      "model_103_evtvnd2": {
+        "name": "Technician-view event severity flags"
+      },
+      "model_103_evtvnd3": {
+        "name": "Vendor event flags"
+      },
+      "model_103_evtvnd4": {
+        "name": "Vendor event flags"
+      },
+      "model_103_hz": {
+        "name": "AC frequency"
+      },
+      "model_103_pf": {
+        "name": "Power factor"
+      },
+      "model_103_phvpha": {
+        "name": "AC voltage L1-N"
+      },
+      "model_103_phvphb": {
+        "name": "AC voltage L2-N"
+      },
+      "model_103_phvphc": {
+        "name": "AC voltage L3-N"
+      },
+      "model_103_ppvphab": {
+        "name": "AC voltage L1-L2"
+      },
+      "model_103_ppvphbc": {
+        "name": "AC voltage L2-L3"
+      },
+      "model_103_ppvphca": {
+        "name": "AC voltage L3-L1"
+      },
+      "model_103_st": {
+        "name": "Operating state"
+      },
+      "model_103_stvnd": {
+        "name": "Vendor operating state"
+      },
+      "model_103_tmpcab": {
+        "name": "Cabinet temperature"
+      },
+      "model_103_tmpot": {
+        "name": "Other temperature"
+      },
+      "model_103_tmpsnk": {
+        "name": "Heat sink temperature"
+      },
+      "model_103_tmptrns": {
+        "name": "Transformer temperature"
+      },
+      "model_103_va": {
+        "name": "Apparent power"
+      },
+      "model_103_var": {
+        "name": "Reactive power"
+      },
+      "model_103_w": {
+        "name": "AC power"
+      },
+      "model_103_wh": {
+        "name": "AC energy"
+      },
+      "model_120_ahrrtg": {
+        "name": "Usable battery capacity"
+      },
+      "model_120_artg": {
+        "name": "Maximum RMS AC current capability"
+      },
+      "model_120_dertyp": {
+        "name": "Type of distributed energy resource device"
+      },
+      "model_120_maxcharte": {
+        "name": "Maximum energy transfer rate into storage"
+      },
+      "model_120_maxdischarte": {
+        "name": "Maximum energy transfer rate out of storage"
+      },
+      "model_120_pfrtgq1": {
+        "name": "Minimum power factor capability in quadrant 1"
+      },
+      "model_120_pfrtgq2": {
+        "name": "Minimum power factor capability in quadrant 2"
+      },
+      "model_120_pfrtgq3": {
+        "name": "Minimum power factor capability in quadrant 3"
+      },
+      "model_120_pfrtgq4": {
+        "name": "Minimum power factor capability in quadrant 4"
+      },
+      "model_120_varrtgq1": {
+        "name": "Continuous VAR capability in quadrant 1"
+      },
+      "model_120_varrtgq2": {
+        "name": "Continuous VAR capability in quadrant 2"
+      },
+      "model_120_varrtgq3": {
+        "name": "Continuous VAR capability in quadrant 3"
+      },
+      "model_120_varrtgq4": {
+        "name": "Continuous VAR capability in quadrant 4"
+      },
+      "model_120_vartg": {
+        "name": "Continuous inverter volt-ampere capability"
+      },
+      "model_120_whrtg": {
+        "name": "Nominal storage energy rating"
+      },
+      "model_120_wrtg": {
+        "name": "Continuous inverter power output capability"
+      },
+      "model_121_clctotva": {
+        "name": "Total apparent-power calculation"
+      },
+      "model_121_connph": {
+        "name": "Connected single-phase identity"
+      },
+      "model_121_ecpnomhz": {
+        "name": "Nominal ECP frequency"
+      },
+      "model_121_maxrmprte": {
+        "name": "Maximum ramp percentage"
+      },
+      "model_121_pfminq1": {
+        "name": "Minimum power factor setting in quadrant 1"
+      },
+      "model_121_pfminq2": {
+        "name": "Minimum power factor setting in quadrant 2"
+      },
+      "model_121_pfminq3": {
+        "name": "Minimum power factor setting in quadrant 3"
+      },
+      "model_121_pfminq4": {
+        "name": "Minimum power factor setting in quadrant 4"
+      },
+      "model_121_vamax": {
+        "name": "Maximum apparent power setpoint"
+      },
+      "model_121_varact": {
+        "name": "VAR action"
+      },
+      "model_121_varmaxq1": {
+        "name": "Maximum reactive power setting in quadrant 1"
+      },
+      "model_121_varmaxq2": {
+        "name": "Maximum reactive power setting in quadrant 2"
+      },
+      "model_121_varmaxq3": {
+        "name": "Maximum reactive power setting in quadrant 3"
+      },
+      "model_121_varmaxq4": {
+        "name": "Maximum reactive power setting in quadrant 4"
+      },
+      "model_121_vmax": {
+        "name": "Maximum voltage setpoint"
+      },
+      "model_121_vmin": {
+        "name": "Minimum voltage setpoint"
+      },
+      "model_121_vref": {
+        "name": "Voltage at the point of common coupling"
+      },
+      "model_121_vrefofs": {
+        "name": "Voltage offset from the PCC to the inverter"
+      },
+      "model_121_wgra": {
+        "name": "Default active-power ramp rate"
+      },
+      "model_121_wmax": {
+        "name": "Maximum power output setting"
+      },
+      "model_122_actvah": {
+        "name": "AC lifetime apparent energy output"
+      },
+      "model_122_actvarhq1": {
+        "name": "AC lifetime reactive energy in quadrant 1"
+      },
+      "model_122_actvarhq2": {
+        "name": "AC lifetime reactive energy in quadrant 2"
+      },
+      "model_122_actvarhq3": {
+        "name": "AC lifetime reactive energy in quadrant 3"
+      },
+      "model_122_actvarhq4": {
+        "name": "AC lifetime reactive energy in quadrant 4"
+      },
+      "model_122_actwh": {
+        "name": "AC lifetime active energy output"
+      },
+      "model_122_ecpconn": {
+        "name": "Electrical connection point status"
+      },
+      "model_122_pvconn": {
+        "name": "PV inverter present and available status"
+      },
+      "model_122_ris": {
+        "name": "Isolation resistance"
+      },
+      "model_122_rtst": {
+        "name": "Active ride-through status"
+      },
+      "model_122_stactctl": {
+        "name": "Currently active inverter controls"
+      },
+      "model_122_storconn": {
+        "name": "Storage inverter present and available status"
+      },
+      "model_122_stsetlimmsk": {
+        "name": "Setpoint-limit status"
+      },
+      "model_122_tms": {
+        "name": "Seconds since 2000-01-01 00:00 UTC"
+      },
+      "model_122_tmsrc": {
+        "name": "Source of time synchronization"
+      },
+      "model_122_varaval": {
+        "name": "Available reactive power"
+      },
+      "model_122_waval": {
+        "name": "Available active power"
+      },
+      "model_123_varavalpct": {
+        "name": "Reactive power as a percentage of VArAval"
+      },
+      "model_123_varpct_mod": {
+        "name": "VAR limit mode"
+      },
+      "model_123_varwmaxpct": {
+        "name": "Reactive power as a percentage of WMax"
+      },
+      "model_123_wmaxlimpct_rmptms": {
+        "name": "Power-limit ramp time"
+      },
+      "model_124_chast": {
+        "name": "Storage charge status"
+      },
+      "model_124_chastate": {
+        "name": "State of charge"
+      },
+      "model_124_inbatv": {
+        "name": "Internal battery voltage"
+      },
+      "model_124_storaval": {
+        "name": "Available storage above reserve"
+      },
+      "model_124_wchagra": {
+        "name": "Maximum charging rate"
+      },
+      "model_124_wchamax": {
+        "name": "Maximum storage charging power"
+      },
+      "model_124_wdischagra": {
+        "name": "Maximum discharge rate"
+      },
+      "model_160_evt": {
+        "name": "Event flags"
+      },
+      "model_160_module_dca": {
+        "name": "DCA"
+      },
+      "model_160_module_dcevt": {
+        "name": "Event flags"
+      },
+      "model_160_module_dcst": {
+        "name": "Operating state"
+      },
+      "model_160_module_dcv": {
+        "name": "DCV"
+      },
+      "model_160_module_dcw": {
+        "name": "DCW"
+      },
+      "model_160_module_dcwh": {
+        "name": "DCWH"
+      },
+      "model_160_module_tmp": {
+        "name": "Temperature"
+      },
+      "model_160_module_tms": {
+        "name": "Tms"
+      },
+      "model_160_mppt_dca": {
+        "name": "MPPT {number} current"
+      },
+      "model_160_mppt_dcevt": {
+        "name": "MPPT {number} event flags"
+      },
+      "model_160_mppt_dcst": {
+        "name": "MPPT {number} operating state"
+      },
+      "model_160_mppt_dcv": {
+        "name": "MPPT {number} voltage"
+      },
+      "model_160_mppt_dcw": {
+        "name": "MPPT {number} power"
+      },
+      "model_160_mppt_dcwh": {
+        "name": "MPPT {number} lifetime energy"
+      },
+      "model_160_mppt_tmp": {
+        "name": "MPPT {number} temperature"
+      },
+      "model_160_mppt_tms": {
+        "name": "MPPT {number} timestamp"
+      },
+      "model_160_n": {
+        "name": "Number of modules"
+      },
+      "model_160_storage_charging_dca": {
+        "name": "Storage charging current"
+      },
+      "model_160_storage_charging_dcevt": {
+        "name": "Storage charging event flags"
+      },
+      "model_160_storage_charging_dcst": {
+        "name": "Storage charging operating state"
+      },
+      "model_160_storage_charging_dcv": {
+        "name": "Storage charging voltage"
+      },
+      "model_160_storage_charging_dcw": {
+        "name": "Storage charging power"
+      },
+      "model_160_storage_charging_dcwh": {
+        "name": "Storage charging lifetime energy"
+      },
+      "model_160_storage_charging_tmp": {
+        "name": "Storage charging temperature"
+      },
+      "model_160_storage_charging_tms": {
+        "name": "Storage charging timestamp"
+      },
+      "model_160_storage_discharging_dca": {
+        "name": "Storage discharging current"
+      },
+      "model_160_storage_discharging_dcevt": {
+        "name": "Storage discharging event flags"
+      },
+      "model_160_storage_discharging_dcst": {
+        "name": "Storage discharging operating state"
+      },
+      "model_160_storage_discharging_dcv": {
+        "name": "Storage discharging voltage"
+      },
+      "model_160_storage_discharging_dcw": {
+        "name": "Storage discharging power"
+      },
+      "model_160_storage_discharging_dcwh": {
+        "name": "Storage discharging lifetime energy"
+      },
+      "model_160_storage_discharging_tmp": {
+        "name": "Storage discharging temperature"
+      },
+      "model_160_storage_discharging_tms": {
+        "name": "Storage discharging timestamp"
+      },
+      "model_160_tmsper": {
+        "name": "Timestamp period"
+      },
+      "model_203_a": {
+        "name": "AC current"
+      },
+      "model_203_apha": {
+        "name": "Phase A current"
+      },
+      "model_203_aphb": {
+        "name": "Phase B current"
+      },
+      "model_203_aphc": {
+        "name": "Phase C current"
+      },
+      "model_203_evt": {
+        "name": "Meter event flags"
+      },
+      "model_203_hz": {
+        "name": "AC frequency"
+      },
+      "model_203_pf": {
+        "name": "Total power factor"
+      },
+      "model_203_pfpha": {
+        "name": "Phase A power factor"
+      },
+      "model_203_pfphb": {
+        "name": "Phase B power factor"
+      },
+      "model_203_pfphc": {
+        "name": "Phase C power factor"
+      },
+      "model_203_phv": {
+        "name": "Average AC voltage L-N"
+      },
+      "model_203_phvpha": {
+        "name": "AC voltage L1-N"
+      },
+      "model_203_phvphab": {
+        "name": "AC voltage L1-L2"
+      },
+      "model_203_phvphb": {
+        "name": "AC voltage L2-N"
+      },
+      "model_203_phvphbc": {
+        "name": "AC voltage L2-L3"
+      },
+      "model_203_phvphc": {
+        "name": "AC voltage L3-N"
+      },
+      "model_203_phvphca": {
+        "name": "AC voltage L3-L1"
+      },
+      "model_203_ppv": {
+        "name": "Average AC voltage L-L"
+      },
+      "model_203_totvahexp": {
+        "name": "Total apparent energy exported"
+      },
+      "model_203_totvahexppha": {
+        "name": "Phase A apparent energy exported"
+      },
+      "model_203_totvahexpphb": {
+        "name": "Phase B apparent energy exported"
+      },
+      "model_203_totvahexpphc": {
+        "name": "Phase C apparent energy exported"
+      },
+      "model_203_totvahimp": {
+        "name": "Total apparent energy imported"
+      },
+      "model_203_totvahimppha": {
+        "name": "Phase A apparent energy imported"
+      },
+      "model_203_totvahimpphb": {
+        "name": "Phase B apparent energy imported"
+      },
+      "model_203_totvahimpphc": {
+        "name": "Phase C apparent energy imported"
+      },
+      "model_203_totvarhexpq3": {
+        "name": "Total reactive energy exported in quadrant 3"
+      },
+      "model_203_totvarhexpq3pha": {
+        "name": "Phase A Q3 energy"
+      },
+      "model_203_totvarhexpq3phb": {
+        "name": "Phase B Q3 energy"
+      },
+      "model_203_totvarhexpq3phc": {
+        "name": "Phase C Q3 energy"
+      },
+      "model_203_totvarhexpq4": {
+        "name": "Total reactive energy exported in quadrant 4"
+      },
+      "model_203_totvarhexpq4pha": {
+        "name": "Phase A Q4 energy"
+      },
+      "model_203_totvarhexpq4phb": {
+        "name": "Phase B Q4 energy"
+      },
+      "model_203_totvarhexpq4phc": {
+        "name": "Phase C Q4 energy"
+      },
+      "model_203_totvarhimpq1": {
+        "name": "Total reactive energy imported in quadrant 1"
+      },
+      "model_203_totvarhimpq1pha": {
+        "name": "Phase A Q1 energy"
+      },
+      "model_203_totvarhimpq1phb": {
+        "name": "Phase B Q1 energy"
+      },
+      "model_203_totvarhimpq1phc": {
+        "name": "Phase C Q1 energy"
+      },
+      "model_203_totvarhimpq2": {
+        "name": "Total reactive energy imported in quadrant 2"
+      },
+      "model_203_totvarhimpq2pha": {
+        "name": "Phase A Q2 energy"
+      },
+      "model_203_totvarhimpq2phb": {
+        "name": "Phase B Q2 energy"
+      },
+      "model_203_totvarhimpq2phc": {
+        "name": "Phase C Q2 energy"
+      },
+      "model_203_totwhexp": {
+        "name": "Exported energy"
+      },
+      "model_203_totwhexppha": {
+        "name": "Phase A real energy exported"
+      },
+      "model_203_totwhexpphb": {
+        "name": "Phase B real energy exported"
+      },
+      "model_203_totwhexpphc": {
+        "name": "Phase C real energy exported"
+      },
+      "model_203_totwhimp": {
+        "name": "Imported energy"
+      },
+      "model_203_totwhimppha": {
+        "name": "Phase A real energy imported"
+      },
+      "model_203_totwhimpphb": {
+        "name": "Phase B real energy imported"
+      },
+      "model_203_totwhimpphc": {
+        "name": "Phase C real energy imported"
+      },
+      "model_203_va": {
+        "name": "Total apparent power"
+      },
+      "model_203_vapha": {
+        "name": "Phase A apparent power"
+      },
+      "model_203_vaphb": {
+        "name": "Phase B apparent power"
+      },
+      "model_203_vaphc": {
+        "name": "Phase C apparent power"
+      },
+      "model_203_var": {
+        "name": "Total reactive power"
+      },
+      "model_203_varpha": {
+        "name": "Phase A reactive power"
+      },
+      "model_203_varphb": {
+        "name": "Phase B reactive power"
+      },
+      "model_203_varphc": {
+        "name": "Phase C reactive power"
+      },
+      "model_203_w": {
+        "name": "AC power"
+      },
+      "model_203_wpha": {
+        "name": "Phase A AC power"
+      },
+      "model_203_wphb": {
+        "name": "Phase B AC power"
+      },
+      "model_203_wphc": {
+        "name": "Phase C AC power"
+      }
+    }
   }
 }

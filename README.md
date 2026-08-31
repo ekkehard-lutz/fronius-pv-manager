@@ -62,6 +62,12 @@ access, range, enum, scaling, representation, and sentinel validation. The
 tool always reads the current value before a possible write and verifies the
 decoded value afterward.
 
+The preparation, encoding, single-write, read-back, and semantic verification
+workflow lives in reusable Home Assistant-independent core code. The CLI adds
+only dry-run policy, confirmation, localization, formatting, and exit status.
+Future Home Assistant number, select, and switch entities will use the same
+core path; those writable entities are not implemented yet.
+
 Dry run is the default and never modifies the device:
 
 ```powershell

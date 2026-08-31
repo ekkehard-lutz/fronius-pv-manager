@@ -10,24 +10,23 @@ from typing import TextIO
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from custom_components.fronius_pv_manager.codec import (  # noqa: E402
-    decode_register_value,
-    encode_register_value,
-)
 from custom_components.fronius_pv_manager.const import (  # noqa: E402
     DEFAULT_PORT,
 )
 from custom_components.fronius_pv_manager.models import (  # noqa: E402
-    RegisterAccess,
     RegisterDataType,
     RegisterDefinition,
-    RegisterValue,
     get_help_text,
 )
-from custom_components.fronius_pv_manager.register_maps import (  # noqa: E402
-    RegisterLookup,
-    find_registers,
-    get_model_definition,
+from custom_components.fronius_pv_manager.register_writer import (  # noqa: E402
+    PreparedRegisterWrite,
+    RegisterWriteError,
+    RegisterWriteVerificationError,
+    prepare_register_write,
+    resolve_writable_register,
+)
+from custom_components.fronius_pv_manager.register_writer import (  # noqa: E402
+    execute_register_write as execute_prepared_write,
 )
 from custom_components.fronius_pv_manager.sunspec import (  # noqa: E402
     SunSpecDiscovery,
@@ -42,7 +41,7 @@ TransportFactory = Callable[..., ModbusTcpTransport]
 InputFunction = Callable[[str], str]
 
 
-def resolve_write_parameter(parameter: str) -> RegisterLookup:
+def resolve_write_parameter(parameter: str):
     """Resolve one qualified, fixed, writable register or raise ValueError."""
     if parameter.count(":") != 1:
         raise ValueError("parameter must use MODEL_ID:NAME syntax")
@@ -53,17 +52,7 @@ def resolve_write_parameter(parameter: str) -> RegisterLookup:
         model_id = int(model_text)
     except ValueError as err:
         raise ValueError(f"invalid model ID {model_text!r}") from err
-    if get_model_definition(model_id) is None:
-        raise ValueError(f"unknown model {model_id}")
-    matches = find_registers(name, model_id=model_id)
-    if not matches:
-        raise ValueError(f"unknown register {model_id}:{name}")
-    match = matches[0]
-    if match.block_name is not None:
-        raise ValueError("repeating-block registers cannot be written")
-    if match.register.access is not RegisterAccess.READ_WRITE:
-        raise ValueError(f"register {model_id}:{name} is read-only")
-    return match
+    return resolve_writable_register(model_id, name)
 
 
 def parse_requested_value(definition: RegisterDefinition, text: str) -> object:
@@ -93,39 +82,6 @@ def parse_requested_value(definition: RegisterDefinition, text: str) -> object:
         raise ValueError("value must be a decimal number") from err
 
 
-def _read_value(
-    transport: ModbusTcpTransport,
-    address: int,
-    definition: RegisterDefinition,
-    scale_factor: int | None,
-) -> RegisterValue:
-    """Read and decode one fixed register at an absolute transport address."""
-    words = transport.read_holding_registers(address, definition.size)
-    return decode_register_value(definition, words, scale_factor)
-
-
-def _resolve_scale_factor(
-    transport: ModbusTcpTransport,
-    model_base: int,
-    match: RegisterLookup,
-) -> int | None:
-    """Read a named fixed scale factor from the live discovered model."""
-    name = match.register.scale_factor
-    if name is None:
-        return None
-    scale_register = next(
-        (register for register in match.model.registers if register.name == name), None
-    )
-    if scale_register is None:
-        raise ValueError(f"scale-factor register {name!r} is not defined")
-    decoded = _read_value(
-        transport, model_base + scale_register.offset, scale_register, None
-    )
-    if type(decoded.value) is not int:
-        raise ValueError(f"scale factor {name!r} is unavailable or invalid")
-    return decoded.value
-
-
 def _display_value(value: object, unit: str | None) -> str:
     """Format one semantic value and optional neutral engineering unit."""
     rendered = "unavailable" if value is None else str(value)
@@ -133,59 +89,38 @@ def _display_value(value: object, unit: str | None) -> str:
 
 
 def _print_summary(
-    match: RegisterLookup,
+    prepared: PreparedRegisterWrite,
     device_id: int,
-    current: RegisterValue,
-    requested: object,
-    words: tuple[int, ...],
-    scale_factor: int | None,
     language: str,
     stdout: TextIO,
 ) -> None:
     """Print the complete read-before-write summary."""
-    definition = match.register
+    definition = prepared.register
     print(f"Device ID: {device_id}", file=stdout)
-    print(f"Model: {match.model_id} - {match.model.name}", file=stdout)
+    print(f"Model: {prepared.model_id} - {prepared.model_name}", file=stdout)
     print(f"Parameter: {definition.name}", file=stdout)
     print(f"Access: {definition.access.value}", file=stdout)
     print(f"Unit: {definition.unit or 'none'}", file=stdout)
     print(
-        f"Current value:   {_display_value(current.value, definition.unit)}",
+        "Current value:   "
+        f"{_display_value(prepared.current_value.value, definition.unit)}",
         file=stdout,
     )
     print(
-        f"Requested value: {_display_value(requested, definition.unit)}",
+        "Requested value: "
+        f"{_display_value(prepared.requested_value, definition.unit)}",
         file=stdout,
     )
     print(
-        "Writing raw:     " + ", ".join(f"0x{word:04X}" for word in words),
+        "Writing raw:     "
+        + ", ".join(f"0x{word:04X}" for word in prepared.encoded_words),
         file=stdout,
     )
-    if scale_factor is not None:
-        print(f"Scale factor: {scale_factor}", file=stdout)
+    if prepared.scale_factor is not None:
+        print(f"Scale factor: {prepared.scale_factor}", file=stdout)
     print(f"Description: {definition.description or 'not available'}", file=stdout)
     if help_text := get_help_text(definition, language):
         print(f"Additional information: {help_text}", file=stdout)
-
-
-def _semantic_matches(
-    definition: RegisterDefinition,
-    read_back: RegisterValue,
-    requested: object,
-) -> bool:
-    """Compare decoded semantics exactly, using canonical numeric protocol choices."""
-    if read_back.value is None:
-        return False
-    if definition.data_type in {
-        RegisterDataType.ENUM16,
-        RegisterDataType.BITFIELD16,
-        RegisterDataType.BITFIELD32,
-    }:
-        return read_back.raw == requested
-    try:
-        return Decimal(str(read_back.value)) == Decimal(str(requested))
-    except InvalidOperation:
-        return read_back.value == requested
 
 
 def execute_register_write(
@@ -218,54 +153,35 @@ def execute_register_write(
         connection_attempted = True
         transport.connect()
         models = SunSpecDiscovery(transport).discover()
-        discovered = next(
-            (model for model in models if model.model_id == match.model_id), None
-        )
-        if discovered is None:
-            raise ValueError(f"model {match.model_id} is not present on the device")
-        if match.register.offset + match.register.size > discovered.length:
-            raise ValueError("register does not fit within the discovered model length")
-
-        scale_factor = _resolve_scale_factor(
-            transport, discovered.base_address, match
-        )
-        address = discovered.base_address + match.register.offset
-        current = _read_value(transport, address, match.register, scale_factor)
-        words = encode_register_value(match.register, requested, scale_factor)
-        _print_summary(
-            match,
-            device_id,
-            current,
+        prepared = prepare_register_write(
+            transport,
+            models,
+            match.model_id,
+            match.register.name,
             requested,
-            words,
-            scale_factor,
-            language,
-            stdout,
         )
+        _print_summary(prepared, device_id, language, stdout)
 
         if not write:
             print("DRY RUN - no register was written.", file=stdout)
         elif not yes and input_function("Type YES to write this value: ") != "YES":
             print("Write aborted; no register was written.", file=stdout)
         else:
-            transport.write_holding_registers(address, words)
             try:
-                read_back = _read_value(
-                    transport, address, match.register, scale_factor
-                )
-            except (ModbusTransportError, ValueError) as err:
+                result = execute_prepared_write(transport, prepared)
+            except RegisterWriteVerificationError as err:
                 print(
-                    f"FAILED: write succeeded but read-back failed: {err}",
+                    f"FAILED: {err}: {err.__cause__}",
                     file=stderr,
                 )
                 status = 1
             else:
                 print(
                     "Read-back value: "
-                    f"{_display_value(read_back.value, match.register.unit)}",
+                    f"{_display_value(result.read_back.value, prepared.register.unit)}",
                     file=stdout,
                 )
-                if _semantic_matches(match.register, read_back, requested):
+                if result.verified:
                     print("SUCCESS: read-back matches requested value.", file=stdout)
                 else:
                     print(
@@ -273,7 +189,11 @@ def execute_register_write(
                         file=stderr,
                     )
                     status = 1
-    except (ValueError, ModbusTransportError, SunSpecDiscoveryError) as err:
+    except (
+        RegisterWriteError,
+        ModbusTransportError,
+        SunSpecDiscoveryError,
+    ) as err:
         print(f"Write test failed: {err}", file=stderr)
         status = 1
     finally:

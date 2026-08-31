@@ -47,6 +47,11 @@ endpoints. Future high-level controllers will validate register combinations,
 perform writes safely, and verify results. These safeguards are especially
 important for battery and storage control.
 
+The independent core provides symmetrical register decoding and encoding.
+Encoding validates write access, semantic ranges, scale factors, exact integer
+representation, and invalid SunSpec sentinels. Actual Modbus writes remain
+intentionally unimplemented.
+
 ## Localization
 
 English and German localization are supported from the beginning. User-visible

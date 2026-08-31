@@ -2,17 +2,22 @@
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import voluptuous as vol
+from homeassistant import data_entry_flow
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PORT
 
 from .const import CONF_DEVICE_IDS, DEFAULT_PORT, DOMAIN
+from .model_decoder import decode_model
+from .register_maps import MODEL_1
 from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
 from .transport import (
     ModbusConnectionError,
     ModbusTcpTransport,
     ModbusTransportError,
+    read_holding_registers_chunked,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,6 +25,13 @@ _MIN_DEVICE_ID = 1
 _MAX_DEVICE_ID = 247
 
 type TransportFactory = Callable[..., ModbusTcpTransport]
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationResult:
+    """Stable identity metadata obtained during endpoint validation."""
+
+    serial_number: str | None
 
 
 def parse_device_ids(value: str) -> tuple[int, ...]:
@@ -48,10 +60,11 @@ def _validate_endpoint(
     port: int,
     device_ids: tuple[int, ...],
     transport_factory: TransportFactory | None = None,
-) -> None:
+) -> ValidationResult:
     """Synchronously validate and close every requested SunSpec participant."""
     factory = transport_factory or ModbusTcpTransport
     transports: list[tuple[int, ModbusTcpTransport]] = []
+    serials: list[tuple[int, bool, str]] = []
     try:
         for device_id in device_ids:
             transports.append(
@@ -63,7 +76,28 @@ def _validate_endpoint(
         for device_id, transport in transports:
             try:
                 transport.connect()
-                SunSpecDiscovery(transport).discover()
+                discovered = SunSpecDiscovery(transport).discover()
+                model_ids = {model.model_id for model in discovered}
+                model_1 = next(
+                    (model for model in discovered if model.model_id == 1), None
+                )
+                if model_1 is not None:
+                    try:
+                        payload = read_holding_registers_chunked(
+                            transport,
+                            model_1.base_address,
+                            model_1.length,
+                        )
+                        serial = decode_model(MODEL_1, payload).fixed["SN"].value
+                    except (ModbusTransportError, ValueError):
+                        _LOGGER.debug(
+                            "Could not read Model 1 identity from device ID %s",
+                            device_id,
+                            exc_info=True,
+                        )
+                    else:
+                        if isinstance(serial, str) and (serial := serial.strip()):
+                            serials.append((device_id, 103 in model_ids, serial))
             except Exception:
                 _LOGGER.debug(
                     "Config flow validation failed for Modbus device ID %s",
@@ -81,11 +115,23 @@ def _validate_endpoint(
                     device_id,
                     exc_info=True,
                 )
+    serial_number = (
+        min(serials, key=lambda candidate: (not candidate[1], candidate[0]))[2]
+        if serials
+        else None
+    )
+    return ValidationResult(serial_number)
+
+
+def normalize_host(host: str) -> str:
+    """Trim a host and remove one optional trailing DNS root dot."""
+    normalized = host.strip()
+    return normalized[:-1] if normalized.endswith(".") else normalized
 
 
 def _endpoint_unique_id(host: str, port: int) -> str:
-    """Return a stable identity without DNS resolution or device semantics."""
-    return f"{host.casefold().rstrip('.')}:{port}"
+    """Return the temporary normalized endpoint duplicate identity."""
+    return f"{normalize_host(host).casefold()}:{port}"
 
 
 def _user_schema(user_input: dict[str, object] | None = None) -> vol.Schema:
@@ -116,13 +162,25 @@ class FroniusPVManagerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def _abort_if_endpoint_configured(self, host: str, port: int) -> None:
+        """Abort on matching stored endpoint data regardless of permanent ID."""
+        endpoint = _endpoint_unique_id(host, port)
+        for entry in self._async_current_entries():
+            stored_host = entry.data.get(CONF_HOST)
+            stored_port = entry.data.get(CONF_PORT, DEFAULT_PORT)
+            if (
+                isinstance(stored_host, str)
+                and _endpoint_unique_id(stored_host, stored_port) == endpoint
+            ):
+                raise data_entry_flow.AbortFlow("already_configured")
+
     async def async_step_user(
         self, user_input: dict[str, object] | None = None
     ) -> ConfigFlowResult:
         """Validate generic endpoint details supplied by the user."""
         errors = {}
         if user_input is not None:
-            host = str(user_input[CONF_HOST]).strip()
+            host = normalize_host(str(user_input[CONF_HOST]))
             port = int(user_input[CONF_PORT])
             try:
                 device_ids = parse_device_ids(str(user_input[CONF_DEVICE_IDS]))
@@ -139,8 +197,9 @@ class FroniusPVManagerConfigFlow(ConfigFlow, domain=DOMAIN):
                 else:
                     await self.async_set_unique_id(_endpoint_unique_id(host, port))
                     self._abort_if_unique_id_configured()
+                    self._abort_if_endpoint_configured(host, port)
                     try:
-                        await self.hass.async_add_executor_job(
+                        validation = await self.hass.async_add_executor_job(
                             _validate_endpoint,
                             host,
                             port,
@@ -158,6 +217,11 @@ class FroniusPVManagerConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
                         errors["base"] = "unknown"
                     else:
+                        if validation.serial_number is not None:
+                            await self.async_set_unique_id(
+                                f"fronius:{validation.serial_number}"
+                            )
+                            self._abort_if_unique_id_configured()
                         return self.async_create_entry(
                             title=host,
                             data={

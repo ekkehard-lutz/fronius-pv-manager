@@ -53,6 +53,18 @@ def _install_transport_factory(monkeypatch, transports: dict[int, FakeTransport]
     return calls
 
 
+def _set_model_1_serial(
+    registers: dict[int, int], payload_base: int, serial: str
+) -> None:
+    """Place a serial number in the synthetic Common Model 1 payload."""
+    raw = serial.encode("ascii").ljust(32, b"\0")
+    for offset in range(16):
+        start = offset * 2
+        registers[payload_base + 48 + offset] = int.from_bytes(
+            raw[start : start + 2], "big"
+        )
+
+
 @pytest.mark.asyncio
 async def test_user_step_shows_form_with_default_port() -> None:
     """The initial user step exposes all fields and defaults TCP port 502."""
@@ -107,18 +119,49 @@ async def test_valid_single_device_creates_normalized_entry(monkeypatch) -> None
     )
 
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EXAMPLE.local."
+    assert result["title"] == "EXAMPLE.local"
     assert result["data"] == {
-        CONF_HOST: "EXAMPLE.local.",
+        CONF_HOST: "EXAMPLE.local",
         CONF_PORT: 502,
         CONF_DEVICE_IDS: [1],
     }
     assert flow.unique_id == "example.local:502"
-    assert calls == [("EXAMPLE.local.", 502, 1)]
+    assert calls == [("EXAMPLE.local", 502, 1)]
     assert transport.close_calls == 1
     assert [job.__name__ for job in flow.hass.executor_jobs] == [
         "_validate_endpoint"
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_1_serial_becomes_permanent_unique_id(monkeypatch) -> None:
+    """A non-empty Common Model serial replaces temporary endpoint identity."""
+    registers, bases = model_chain((1, 65), (103, 50))
+    _set_model_1_serial(registers, bases[1], "31520500")
+    transport = FakeTransport(registers)
+    _install_transport_factory(monkeypatch, {1: transport})
+    flow = _flow()
+
+    result = await flow.async_step_user(_valid_input())
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert flow.unique_id == "fronius:31520500"
+    assert transport.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_model_1_serial_uses_endpoint_fallback(monkeypatch) -> None:
+    """Missing identity metadata retains the deterministic normalized endpoint ID."""
+    registers, _ = model_chain((1, 65))
+    transport = FakeTransport(registers)
+    _install_transport_factory(monkeypatch, {1: transport})
+    flow = _flow()
+
+    result = await flow.async_step_user(_valid_input())
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert flow.unique_id == "192.0.2.40:502"
+    assert transport.close_calls == 1
 
 
 @pytest.mark.asyncio
@@ -236,8 +279,11 @@ async def test_unexpected_validation_failure_is_hidden_and_closes_created_client
 async def test_duplicate_endpoint_aborts_before_validation() -> None:
     """Endpoint identity ignores device IDs and normalizes hostname casing/dot."""
     hass = FakeHass()
-    hass.config_entries.entries_by_unique_id[(DOMAIN, "example.local:502")] = (
-        SimpleNamespace(source=SOURCE_USER)
+    hass.config_entries.entries_by_unique_id[(DOMAIN, "fronius:31520500")] = (
+        SimpleNamespace(
+            source=SOURCE_USER,
+            data={CONF_HOST: "example.local", CONF_PORT: 502},
+        )
     )
     flow = _flow(hass)
 
@@ -253,3 +299,27 @@ async def test_duplicate_endpoint_aborts_before_validation() -> None:
 
     assert raised.value.reason == "already_configured"
     assert hass.executor_jobs == []
+
+
+@pytest.mark.asyncio
+async def test_same_serial_on_different_host_aborts_after_validation(
+    monkeypatch,
+) -> None:
+    """Stable hardware identity prevents re-adding a system under another host."""
+    registers, bases = model_chain((1, 65))
+    _set_model_1_serial(registers, bases[1], "31520500")
+    transport = FakeTransport(registers)
+    _install_transport_factory(monkeypatch, {1: transport})
+    hass = FakeHass()
+    hass.config_entries.entries_by_unique_id[(DOMAIN, "fronius:31520500")] = (
+        SimpleNamespace(
+            source=SOURCE_USER,
+            data={CONF_HOST: "old-host.local", CONF_PORT: 502},
+        )
+    )
+
+    with pytest.raises(data_entry_flow.AbortFlow) as raised:
+        await _flow(hass).async_step_user(_valid_input())
+
+    assert raised.value.reason == "already_configured"
+    assert transport.close_calls == 1

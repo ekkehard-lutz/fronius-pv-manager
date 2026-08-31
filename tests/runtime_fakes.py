@@ -28,6 +28,14 @@ class FakeConfigEntries:
         """Return a configured entry with the requested endpoint identity."""
         return self.entries_by_unique_id.get((domain, unique_id))
 
+    def async_entries(self, domain, include_ignore=False):
+        """Return configured entries for one integration domain."""
+        return [
+            entry
+            for (entry_domain, _), entry in self.entries_by_unique_id.items()
+            if entry_domain == domain
+        ]
+
     async def async_forward_entry_setups(self, entry, platforms) -> None:
         """Record platform forwarding or raise a configured failure."""
         self.forwarded.append((entry, tuple(platforms)))

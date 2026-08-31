@@ -541,6 +541,16 @@ def test_home_assistant_translation_structures_cover_catalog_sensors() -> None:
         json.loads((root / path).read_text(encoding="utf-8"))
         for path in ("strings.json", "translations/en.json", "translations/de.json")
     ]
+
+    def structure(value):
+        return (
+            {key: structure(item) for key, item in value.items()}
+            if isinstance(value, dict)
+            else None
+        )
+
+    assert structure(documents[0]) == structure(documents[1])
+    assert structure(documents[1]) == structure(documents[2])
     key_sets = [set(document["entity"]["sensor"]) for document in documents]
     assert key_sets[0] == key_sets[1] == key_sets[2]
     expected = set()
@@ -573,9 +583,10 @@ def test_storage_names_and_inverter_state_translations() -> None:
     english = json.loads(
         (root / "translations/en.json").read_text(encoding="utf-8")
     )["entity"]["sensor"]
-    german = json.loads(
-        (root / "translations/de.json").read_text(encoding="utf-8")
-    )["entity"]["sensor"]
+    german_text = (root / "translations/de.json").read_text(encoding="utf-8")
+    assert "�" not in german_text
+    german_document = json.loads(german_text)
+    german = german_document["entity"]["sensor"]
     assert english["model_160_storage_charging_dcw"]["name"] == (
         "Storage charging power"
     )
@@ -618,3 +629,16 @@ def test_storage_names_and_inverter_state_translations() -> None:
         "fault": "Fehler",
         "standby": "Bereitschaft",
     }
+    assert german_document["config"]["step"]["user"]["data"]["device_ids"] == (
+        "Modbus-Geräte-IDs"
+    )
+    assert german["model_103_tmpcab"]["name"] == "Gehäusetemperatur"
+    assert german["model_103_tmpsnk"]["name"] == "Kühlkörpertemperatur"
+    assert german["model_120_ahrrtg"]["name"] == "Nutzbare Batteriekapazität"
+    assert german["model_120_artg"]["name"] == "Maximaler AC-RMS-Strom"
+    assert german["model_120_dertyp"]["name"] == (
+        "Typ der dezentralen Energieerzeugungsanlage"
+    )
+    assert german["model_121_clctotva"]["name"] == (
+        "Berechnung der Gesamtscheinleistung"
+    )

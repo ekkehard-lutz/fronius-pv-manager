@@ -8,19 +8,19 @@
         "data": {
           "host": "Host",
           "port": "Port",
-          "device_ids": "Modbus-Ger�te-IDs"
+          "device_ids": "Modbus-Geräte-IDs"
         },
         "data_description": {
-          "device_ids": "Kommagetrennte Modbus-Ger�te-IDs, die erkannt werden sollen, zum Beispiel 1, 200."
+          "device_ids": "Kommagetrennte Modbus-Geräte-IDs, die erkannt werden sollen, zum Beispiel 1, 200."
         }
       }
     },
     "error": {
       "cannot_connect": "Verbindung zum Modbus-Endpunkt fehlgeschlagen.",
       "invalid_host": "Einen Hostnamen oder eine IP-Adresse eingeben.",
-      "invalid_sunspec": "Ein konfiguriertes Ger�t hat keine g�ltige SunSpec-Antwort geliefert.",
-      "invalid_device_ids": "Kommagetrennte Modbus-Ger�te-IDs von 1 bis 247 ohne leere Eintr�ge eingeben.",
-      "duplicate_device_ids": "Jede Modbus-Ger�te-ID darf nur einmal eingegeben werden.",
+      "invalid_sunspec": "Ein konfiguriertes Gerät hat keine gültige SunSpec-Antwort geliefert.",
+      "invalid_device_ids": "Kommagetrennte Modbus-Geräte-IDs von 1 bis 247 ohne leere Einträge eingeben.",
+      "duplicate_device_ids": "Jede Modbus-Geräte-ID darf nur einmal eingegeben werden.",
       "unknown": "Unerwarteter Fehler."
     },
     "abort": {
@@ -71,22 +71,22 @@
         "name": "DC-Leistung"
       },
       "model_103_evt1": {
-        "name": "SunSpec event flags"
+        "name": "SunSpec-Ereignisflags"
       },
       "model_103_evt2": {
-        "name": "Reserved for future use"
+        "name": "Für zukünftige Verwendung reserviert"
       },
       "model_103_evtvnd1": {
-        "name": "Customer-view event severity flags"
+        "name": "Ereignisschweregrade für Benutzer"
       },
       "model_103_evtvnd2": {
-        "name": "Technician-view event severity flags"
+        "name": "Ereignisschweregrade für Techniker"
       },
       "model_103_evtvnd3": {
-        "name": "Vendor event flags"
+        "name": "Herstellerspezifische Ereignisflags 3"
       },
       "model_103_evtvnd4": {
-        "name": "Vendor event flags"
+        "name": "Herstellerspezifische Ereignisflags 4"
       },
       "model_103_hz": {
         "name": "AC-Frequenz"
@@ -129,13 +129,13 @@
         "name": "Herstellerspezifischer Betriebszustand"
       },
       "model_103_tmpcab": {
-        "name": "Geh�usetemperatur"
+        "name": "Gehäusetemperatur"
       },
       "model_103_tmpot": {
         "name": "Weitere Temperatur"
       },
       "model_103_tmpsnk": {
-        "name": "K�hlk�rpertemperatur"
+        "name": "Kühlkörpertemperatur"
       },
       "model_103_tmptrns": {
         "name": "Transformatortemperatur"
@@ -153,175 +153,175 @@
         "name": "AC-Energie"
       },
       "model_120_ahrrtg": {
-        "name": "Usable battery capacity"
+        "name": "Nutzbare Batteriekapazität"
       },
       "model_120_artg": {
-        "name": "Maximal RMS AC Strom capability"
+        "name": "Maximaler AC-RMS-Strom"
       },
       "model_120_dertyp": {
-        "name": "Type of distributed Energie resource device"
+        "name": "Typ der dezentralen Energieerzeugungsanlage"
       },
       "model_120_maxcharte": {
-        "name": "Maximal Energie transfer Rate into storage"
+        "name": "Maximale Energieübertragungsrate beim Laden"
       },
       "model_120_maxdischarte": {
-        "name": "Maximal Energie transfer Rate out of storage"
+        "name": "Maximale Energieübertragungsrate beim Entladen"
       },
       "model_120_pfrtgq1": {
-        "name": "Minimal Leistung factor capability in quadrant 1"
+        "name": "Minimaler Leistungsfaktor in Quadrant 1"
       },
       "model_120_pfrtgq2": {
-        "name": "Minimal Leistung factor capability in quadrant 2"
+        "name": "Minimaler Leistungsfaktor in Quadrant 2"
       },
       "model_120_pfrtgq3": {
-        "name": "Minimal Leistung factor capability in quadrant 3"
+        "name": "Minimaler Leistungsfaktor in Quadrant 3"
       },
       "model_120_pfrtgq4": {
-        "name": "Minimal Leistung factor capability in quadrant 4"
+        "name": "Minimaler Leistungsfaktor in Quadrant 4"
       },
       "model_120_varrtgq1": {
-        "name": "Continuous VAR capability in quadrant 1"
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 1"
       },
       "model_120_varrtgq2": {
-        "name": "Continuous VAR capability in quadrant 2"
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 2"
       },
       "model_120_varrtgq3": {
-        "name": "Continuous VAR capability in quadrant 3"
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 3"
       },
       "model_120_varrtgq4": {
-        "name": "Continuous VAR capability in quadrant 4"
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 4"
       },
       "model_120_vartg": {
-        "name": "Continuous inverter volt-ampere capability"
+        "name": "Dauerhafte Scheinleistungsfähigkeit des Wechselrichters"
       },
       "model_120_whrtg": {
-        "name": "Nominal storage Energie rating"
+        "name": "Nennkapazität des Speichers"
       },
       "model_120_wrtg": {
-        "name": "Continuous inverter Leistung output capability"
+        "name": "Dauerhafte Wirkleistungsfähigkeit des Wechselrichters"
       },
       "model_121_clctotva": {
-        "name": "Gesamt apparent-Leistung calculation"
+        "name": "Berechnung der Gesamtscheinleistung"
       },
       "model_121_connph": {
-        "name": "Connected single-phase identity"
+        "name": "Angeschlossene Phase bei einphasigem Betrieb"
       },
       "model_121_ecpnomhz": {
-        "name": "Nominal ECP Frequenz"
+        "name": "Nennfrequenz am ECP"
       },
       "model_121_maxrmprte": {
-        "name": "Maximal ramp percentage"
+        "name": "Maximale Rampenrate"
       },
       "model_121_pfminq1": {
-        "name": "Minimal Leistung factor Einstellung in quadrant 1"
+        "name": "Minimaler Leistungsfaktor in Quadrant 1"
       },
       "model_121_pfminq2": {
-        "name": "Minimal Leistung factor Einstellung in quadrant 2"
+        "name": "Minimaler Leistungsfaktor in Quadrant 2"
       },
       "model_121_pfminq3": {
-        "name": "Minimal Leistung factor Einstellung in quadrant 3"
+        "name": "Minimaler Leistungsfaktor in Quadrant 3"
       },
       "model_121_pfminq4": {
-        "name": "Minimal Leistung factor Einstellung in quadrant 4"
+        "name": "Minimaler Leistungsfaktor in Quadrant 4"
       },
       "model_121_vamax": {
-        "name": "Maximal apparent Leistung setpoint"
+        "name": "Maximaler Scheinleistungs-Sollwert"
       },
       "model_121_varact": {
-        "name": "VAR action"
+        "name": "Blindleistungsaktion"
       },
       "model_121_varmaxq1": {
-        "name": "Maximal reactive Leistung Einstellung in quadrant 1"
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 1"
       },
       "model_121_varmaxq2": {
-        "name": "Maximal reactive Leistung Einstellung in quadrant 2"
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 2"
       },
       "model_121_varmaxq3": {
-        "name": "Maximal reactive Leistung Einstellung in quadrant 3"
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 3"
       },
       "model_121_varmaxq4": {
-        "name": "Maximal reactive Leistung Einstellung in quadrant 4"
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 4"
       },
       "model_121_vmax": {
-        "name": "Maximal Spannung setpoint"
+        "name": "Maximaler Spannungssollwert"
       },
       "model_121_vmin": {
-        "name": "Minimal Spannung setpoint"
+        "name": "Minimaler Spannungssollwert"
       },
       "model_121_vref": {
-        "name": "Spannung at the point of common coupling"
+        "name": "Spannung am Netzanschlusspunkt"
       },
       "model_121_vrefofs": {
-        "name": "Spannung offset from the PCC to the inverter"
+        "name": "Spannungsversatz zum Netzanschlusspunkt"
       },
       "model_121_wgra": {
-        "name": "Default active-Leistung ramp Rate"
+        "name": "Standard-Wirkleistungsrampe"
       },
       "model_121_wmax": {
-        "name": "Maximal Leistung output Einstellung"
+        "name": "Maximaler Wirkleistungs-Sollwert"
       },
       "model_122_actvah": {
-        "name": "AC lifetime apparent Energie output"
+        "name": "AC-Scheinenergie gesamt"
       },
       "model_122_actvarhq1": {
-        "name": "AC lifetime reactive Energie in quadrant 1"
+        "name": "AC-Blindenergie gesamt in Quadrant 1"
       },
       "model_122_actvarhq2": {
-        "name": "AC lifetime reactive Energie in quadrant 2"
+        "name": "AC-Blindenergie gesamt in Quadrant 2"
       },
       "model_122_actvarhq3": {
-        "name": "AC lifetime reactive Energie in quadrant 3"
+        "name": "AC-Blindenergie gesamt in Quadrant 3"
       },
       "model_122_actvarhq4": {
-        "name": "AC lifetime reactive Energie in quadrant 4"
+        "name": "AC-Blindenergie gesamt in Quadrant 4"
       },
       "model_122_actwh": {
-        "name": "AC lifetime active Energie output"
+        "name": "AC-Wirkenergie gesamt"
       },
       "model_122_ecpconn": {
-        "name": "Electrical connection point Status"
+        "name": "Status des Netzanschlusspunkts"
       },
       "model_122_pvconn": {
-        "name": "PV inverter present and available Status"
+        "name": "PV-Wechselrichter verfügbar"
       },
       "model_122_ris": {
-        "name": "Isolation resistance"
+        "name": "Isolationswiderstand"
       },
       "model_122_rtst": {
-        "name": "Active ride-through Status"
+        "name": "Aktiver Ride-Through-Status"
       },
       "model_122_stactctl": {
-        "name": "Stromly active inverter controls"
+        "name": "Aktive Wechselrichterregelungen"
       },
       "model_122_storconn": {
-        "name": "Speicher inverter present and available Status"
+        "name": "Speicherwechselrichter verfügbar"
       },
       "model_122_stsetlimmsk": {
-        "name": "Setpoint-limit Status"
+        "name": "Status der Sollwertbegrenzung"
       },
       "model_122_tms": {
-        "name": "Seconds since 2000-01-01 00:00 UTC"
+        "name": "Sekunden seit 01.01.2000 00:00 UTC"
       },
       "model_122_tmsrc": {
-        "name": "Source of time synchronization"
+        "name": "Quelle der Zeitsynchronisierung"
       },
       "model_122_varaval": {
-        "name": "Verf�gbar reactive Leistung"
+        "name": "Verfügbare Blindleistung"
       },
       "model_122_waval": {
-        "name": "Verf�gbar active Leistung"
+        "name": "Verfügbare Wirkleistung"
       },
       "model_123_varavalpct": {
-        "name": "Reactive Leistung as a percentage of VArAval"
+        "name": "Blindleistung in Prozent von VArAval"
       },
       "model_123_varpct_mod": {
-        "name": "VAR limit mode"
+        "name": "VAR-Begrenzungsmodus"
       },
       "model_123_varwmaxpct": {
-        "name": "Reactive Leistung as a percentage of WMax"
+        "name": "Blindleistung in Prozent von WMax"
       },
       "model_123_wmaxlimpct_rmptms": {
-        "name": "Leistung-limit ramp time"
+        "name": "Rampenzeit der Wirkleistungsbegrenzung"
       },
       "model_124_chast": {
         "name": "Speicher-Ladestatus"
@@ -345,31 +345,31 @@
         "name": "Maximale Entladerate"
       },
       "model_160_evt": {
-        "name": "Ereignis flags"
+        "name": "Ereignisflags"
       },
       "model_160_module_dca": {
-        "name": "DCA"
+        "name": "DC-Strom"
       },
       "model_160_module_dcevt": {
-        "name": "Ereignis flags"
+        "name": "DC-Ereignisflags"
       },
       "model_160_module_dcst": {
         "name": "Betriebszustand"
       },
       "model_160_module_dcv": {
-        "name": "DCV"
+        "name": "DC-Spannung"
       },
       "model_160_module_dcw": {
-        "name": "DCW"
+        "name": "DC-Leistung"
       },
       "model_160_module_dcwh": {
-        "name": "DCWH"
+        "name": "DC-Energie gesamt"
       },
       "model_160_module_tmp": {
         "name": "Temperatur"
       },
       "model_160_module_tms": {
-        "name": "Tms"
+        "name": "Zeitstempel"
       },
       "model_160_mppt_dca": {
         "name": "MPPT {number} Strom"
@@ -396,7 +396,7 @@
         "name": "MPPT {number} Zeitstempel"
       },
       "model_160_n": {
-        "name": "Number of modules"
+        "name": "Anzahl der Module"
       },
       "model_160_storage_charging_dca": {
         "name": "Speicher-Ladestrom"
@@ -447,7 +447,7 @@
         "name": "Speicher-Entladezeitstempel"
       },
       "model_160_tmsper": {
-        "name": "Zeitstamp period"
+        "name": "Zeitstempelintervall"
       },
       "model_203_a": {
         "name": "AC-Strom"
@@ -462,22 +462,22 @@
         "name": "Strom Phase L3"
       },
       "model_203_evt": {
-        "name": "Meter event flags"
+        "name": "Smart-Meter-Ereignisflags"
       },
       "model_203_hz": {
         "name": "AC-Frequenz"
       },
       "model_203_pf": {
-        "name": "Gesamt Leistung factor"
+        "name": "Gesamtleistungsfaktor"
       },
       "model_203_pfpha": {
-        "name": "Phase L1 Leistung factor"
+        "name": "Leistungsfaktor Phase L1"
       },
       "model_203_pfphb": {
-        "name": "Phase L2 Leistung factor"
+        "name": "Leistungsfaktor Phase L2"
       },
       "model_203_pfphc": {
-        "name": "Phase L3 Leistung factor"
+        "name": "Leistungsfaktor Phase L3"
       },
       "model_203_phv": {
         "name": "Mittlere Spannung L-N"
@@ -504,124 +504,124 @@
         "name": "Mittlere Spannung L-L"
       },
       "model_203_totvahexp": {
-        "name": "Gesamt apparent Energie eingespeist"
+        "name": "Eingespeiste Scheinenergie gesamt"
       },
       "model_203_totvahexppha": {
-        "name": "Phase L1 apparent Energie eingespeist"
+        "name": "Eingespeiste Scheinenergie Phase L1"
       },
       "model_203_totvahexpphb": {
-        "name": "Phase L2 apparent Energie eingespeist"
+        "name": "Eingespeiste Scheinenergie Phase L2"
       },
       "model_203_totvahexpphc": {
-        "name": "Phase L3 apparent Energie eingespeist"
+        "name": "Eingespeiste Scheinenergie Phase L3"
       },
       "model_203_totvahimp": {
-        "name": "Gesamt apparent Energie bezogen"
+        "name": "Bezogene Scheinenergie gesamt"
       },
       "model_203_totvahimppha": {
-        "name": "Phase L1 apparent Energie bezogen"
+        "name": "Bezogene Scheinenergie Phase L1"
       },
       "model_203_totvahimpphb": {
-        "name": "Phase L2 apparent Energie bezogen"
+        "name": "Bezogene Scheinenergie Phase L2"
       },
       "model_203_totvahimpphc": {
-        "name": "Phase L3 apparent Energie bezogen"
+        "name": "Bezogene Scheinenergie Phase L3"
       },
       "model_203_totvarhexpq3": {
-        "name": "Gesamt reactive Energie eingespeist in quadrant 3"
+        "name": "Eingespeiste Blindenergie gesamt in Quadrant 3"
       },
       "model_203_totvarhexpq3pha": {
-        "name": "Phase L1 Q3 Energie"
+        "name": "Eingespeiste Blindenergie Phase L1 in Quadrant 3"
       },
       "model_203_totvarhexpq3phb": {
-        "name": "Phase L2 Q3 Energie"
+        "name": "Eingespeiste Blindenergie Phase L2 in Quadrant 3"
       },
       "model_203_totvarhexpq3phc": {
-        "name": "Phase L3 Q3 Energie"
+        "name": "Eingespeiste Blindenergie Phase L3 in Quadrant 3"
       },
       "model_203_totvarhexpq4": {
-        "name": "Gesamt reactive Energie eingespeist in quadrant 4"
+        "name": "Eingespeiste Blindenergie gesamt in Quadrant 4"
       },
       "model_203_totvarhexpq4pha": {
-        "name": "Phase L1 Q4 Energie"
+        "name": "Eingespeiste Blindenergie Phase L1 in Quadrant 4"
       },
       "model_203_totvarhexpq4phb": {
-        "name": "Phase L2 Q4 Energie"
+        "name": "Eingespeiste Blindenergie Phase L2 in Quadrant 4"
       },
       "model_203_totvarhexpq4phc": {
-        "name": "Phase L3 Q4 Energie"
+        "name": "Eingespeiste Blindenergie Phase L3 in Quadrant 4"
       },
       "model_203_totvarhimpq1": {
-        "name": "Gesamt reactive Energie bezogen in quadrant 1"
+        "name": "Bezogene Blindenergie gesamt in Quadrant 1"
       },
       "model_203_totvarhimpq1pha": {
-        "name": "Phase L1 Q1 Energie"
+        "name": "Bezogene Blindenergie Phase L1 in Quadrant 1"
       },
       "model_203_totvarhimpq1phb": {
-        "name": "Phase L2 Q1 Energie"
+        "name": "Bezogene Blindenergie Phase L2 in Quadrant 1"
       },
       "model_203_totvarhimpq1phc": {
-        "name": "Phase L3 Q1 Energie"
+        "name": "Bezogene Blindenergie Phase L3 in Quadrant 1"
       },
       "model_203_totvarhimpq2": {
-        "name": "Gesamt reactive Energie bezogen in quadrant 2"
+        "name": "Bezogene Blindenergie gesamt in Quadrant 2"
       },
       "model_203_totvarhimpq2pha": {
-        "name": "Phase L1 Q2 Energie"
+        "name": "Bezogene Blindenergie Phase L1 in Quadrant 2"
       },
       "model_203_totvarhimpq2phb": {
-        "name": "Phase L2 Q2 Energie"
+        "name": "Bezogene Blindenergie Phase L2 in Quadrant 2"
       },
       "model_203_totvarhimpq2phc": {
-        "name": "Phase L3 Q2 Energie"
+        "name": "Bezogene Blindenergie Phase L3 in Quadrant 2"
       },
       "model_203_totwhexp": {
         "name": "Eingespeiste Energie"
       },
       "model_203_totwhexppha": {
-        "name": "Phase L1 real Energie eingespeist"
+        "name": "Eingespeiste Wirkenergie Phase L1"
       },
       "model_203_totwhexpphb": {
-        "name": "Phase L2 real Energie eingespeist"
+        "name": "Eingespeiste Wirkenergie Phase L2"
       },
       "model_203_totwhexpphc": {
-        "name": "Phase L3 real Energie eingespeist"
+        "name": "Eingespeiste Wirkenergie Phase L3"
       },
       "model_203_totwhimp": {
         "name": "Bezogene Energie"
       },
       "model_203_totwhimppha": {
-        "name": "Phase L1 real Energie bezogen"
+        "name": "Bezogene Wirkenergie Phase L1"
       },
       "model_203_totwhimpphb": {
-        "name": "Phase L2 real Energie bezogen"
+        "name": "Bezogene Wirkenergie Phase L2"
       },
       "model_203_totwhimpphc": {
-        "name": "Phase L3 real Energie bezogen"
+        "name": "Bezogene Wirkenergie Phase L3"
       },
       "model_203_va": {
-        "name": "Gesamt apparent Leistung"
+        "name": "Gesamtscheinleistung"
       },
       "model_203_vapha": {
-        "name": "Phase L1 apparent Leistung"
+        "name": "Scheinleistung Phase L1"
       },
       "model_203_vaphb": {
-        "name": "Phase L2 apparent Leistung"
+        "name": "Scheinleistung Phase L2"
       },
       "model_203_vaphc": {
-        "name": "Phase L3 apparent Leistung"
+        "name": "Scheinleistung Phase L3"
       },
       "model_203_var": {
-        "name": "Gesamt reactive Leistung"
+        "name": "Gesamtblindleistung"
       },
       "model_203_varpha": {
-        "name": "Phase L1 reactive Leistung"
+        "name": "Blindleistung Phase L1"
       },
       "model_203_varphb": {
-        "name": "Phase L2 reactive Leistung"
+        "name": "Blindleistung Phase L2"
       },
       "model_203_varphc": {
-        "name": "Phase L3 reactive Leistung"
+        "name": "Blindleistung Phase L3"
       },
       "model_203_w": {
         "name": "AC-Leistung"

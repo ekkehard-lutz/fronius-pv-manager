@@ -2,6 +2,7 @@
 
 import pytest
 from homeassistant.config_entries import ConfigEntryNotReady
+from homeassistant.const import Platform
 
 import custom_components.fronius_pv_manager as integration_module
 from custom_components.fronius_pv_manager import (
@@ -47,6 +48,7 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
         999,
     ]
     assert transport.connect_calls == 1
+    assert hass.config_entries.forwarded == [(entry, (Platform.SENSOR,))]
 
 
 @pytest.mark.asyncio
@@ -91,6 +93,7 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     assert coordinator._shutdown_requested
     assert transport.close_calls == 1
     assert not hasattr(entry, "runtime_data")
+    assert hass.config_entries.unloaded == [(entry, (Platform.SENSOR,))]
 
 
 @pytest.mark.asyncio
@@ -110,3 +113,47 @@ async def test_close_failure_does_not_break_unload(monkeypatch) -> None:
     assert await async_unload_entry(hass, entry)
     assert transport.close_calls == 1
     assert not hasattr(entry, "runtime_data")
+
+
+@pytest.mark.asyncio
+async def test_platform_forwarding_failure_rolls_back_runtime(monkeypatch) -> None:
+    """A platform setup failure shuts down and closes the new runtime."""
+    registers, _ = model_chain((1, 65))
+    transport = FakeTransport(registers)
+    monkeypatch.setattr(
+        integration_module,
+        "ModbusTcpTransport",
+        lambda *args, **kwargs: transport,
+    )
+    hass = FakeHass()
+    hass.config_entries.forward_error = RuntimeError("platform setup failed")
+    entry = FakeEntry(entry_data())
+
+    with pytest.raises(RuntimeError, match="platform setup failed"):
+        await async_setup_entry(hass, entry)
+
+    assert transport.close_calls == 1
+    assert not hasattr(entry, "runtime_data")
+
+
+@pytest.mark.asyncio
+async def test_failed_platform_unload_keeps_runtime_active(monkeypatch) -> None:
+    """A refused platform unload leaves polling and transport untouched."""
+    registers, _ = model_chain((1, 65))
+    transport = FakeTransport(registers)
+    monkeypatch.setattr(
+        integration_module,
+        "ModbusTcpTransport",
+        lambda *args, **kwargs: transport,
+    )
+    hass = FakeHass()
+    entry = FakeEntry(entry_data())
+    await async_setup_entry(hass, entry)
+    coordinator = entry.runtime_data
+    hass.config_entries.unload_result = False
+
+    assert not await async_unload_entry(hass, entry)
+
+    assert entry.runtime_data is coordinator
+    assert not coordinator._shutdown_requested
+    assert transport.close_calls == 0

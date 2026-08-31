@@ -3,6 +3,7 @@
 import logging
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, DEFAULT_PORT, DEFAULT_UNIT_ID
@@ -11,6 +12,7 @@ from .sunspec import SunSpecDiscoveryError
 from .transport import ModbusTcpTransport, ModbusTransportError
 
 _LOGGER = logging.getLogger(__name__)
+PLATFORMS = (Platform.SENSOR,)
 
 type FroniusPVConfigEntry = ConfigEntry[FroniusPVCoordinator]
 
@@ -39,6 +41,19 @@ async def async_setup_entry(
             raise
         raise ConfigEntryNotReady("Fronius SunSpec device is unavailable") from err
     entry.runtime_data = coordinator
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        await coordinator.async_shutdown()
+        try:
+            await coordinator.async_close()
+        except ModbusTransportError:
+            _LOGGER.warning(
+                "Failed to close transport after platform setup failure",
+                exc_info=True,
+            )
+        del entry.runtime_data
+        raise
     return True
 
 
@@ -46,6 +61,9 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: FroniusPVConfigEntry
 ) -> bool:
     """Stop coordinator activity and close its persistent transport safely."""
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
+
     coordinator = entry.runtime_data
     await coordinator.async_shutdown()
     try:

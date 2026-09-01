@@ -17,14 +17,22 @@ def policy_yaml(body: str, *, model_id: int = 124) -> str:
     return f"version: 1\nmodels:\n  {model_id}:\n{body}"
 
 
-def test_shipped_default_is_valid_and_approves_only_minimum_reserve() -> None:
-    """The package default is the single conservative hardware-tested policy."""
+def test_shipped_default_contains_exact_intended_approvals() -> None:
+    """The package default contains only its two reviewed storage controls."""
     policies = load_write_policy_text(DEFAULT_POLICY_PATH.read_text(encoding="utf-8"))
 
-    assert tuple(policies) == ((124, "MinRsvPct"),)
-    policy = policies[(124, "MinRsvPct")]
-    assert policy.minimum == 0
-    assert policy.maximum == 100
+    assert tuple(policies) == (
+        (124, "MinRsvPct"),
+        (124, "ChaGriSet"),
+    )
+    reserve = policies[(124, "MinRsvPct")]
+    assert reserve.minimum == 0
+    assert reserve.maximum == 100
+    assert reserve.allowed_enum_values is None
+    charging_source = policies[(124, "ChaGriSet")]
+    assert charging_source.minimum is None
+    assert charging_source.maximum is None
+    assert charging_source.allowed_enum_values == frozenset({0, 1})
 
 
 def test_first_load_creates_installation_policy_from_default(tmp_path: Path) -> None:
@@ -35,7 +43,10 @@ def test_first_load_creates_installation_policy_from_default(tmp_path: Path) -> 
     assert path.read_text(encoding="utf-8") == DEFAULT_POLICY_PATH.read_text(
         encoding="utf-8"
     )
-    assert tuple(policies) == ((124, "MinRsvPct"),)
+    assert tuple(policies) == (
+        (124, "MinRsvPct"),
+        (124, "ChaGriSet"),
+    )
 
 
 def test_existing_policy_is_not_overwritten_and_reload_rereads_it(

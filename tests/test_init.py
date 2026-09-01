@@ -57,7 +57,10 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     assert hass.config_entries.forwarded == [
         (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
     ]
-    assert tuple(entry.runtime_data.write_policies) == ((124, "MinRsvPct"),)
+    assert tuple(entry.runtime_data.write_policies) == (
+        (124, "MinRsvPct"),
+        (124, "ChaGriSet"),
+    )
 
 
 @pytest.mark.asyncio
@@ -67,7 +70,9 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     """Invalid operator YAML fails closed without disabling read-only polling."""
     policy_path = tmp_path / "fronius_pv_manager" / "write_policy.yaml"
     policy_path.parent.mkdir()
-    invalid_content = "version: 1\nmodels:\n  124:\n    ChaState: {}\n"
+    invalid_content = (
+        "version: 1\nmodels:\n  124:\n    ChaGriSet:\n      values: [2]\n"
+    )
     policy_path.write_text(invalid_content, encoding="utf-8")
     registers, _ = model_chain((124, 24))
     transport = FakeTransport(registers)

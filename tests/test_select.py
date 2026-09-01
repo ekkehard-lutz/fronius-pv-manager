@@ -1,11 +1,23 @@
 """Tests for policy-approved Home Assistant select entities."""
 
 import pytest
+from homeassistant.const import EntityCategory
 from homeassistant.exceptions import ServiceValidationError
 
+from custom_components.fronius_pv_manager.models import PhysicalDeviceRole
 from custom_components.fronius_pv_manager.select import async_setup_entry
 from custom_components.fronius_pv_manager.write_policy import WritePolicy
-from tests.control_entity_fakes import ControlCoordinator
+from custom_components.fronius_pv_manager.write_policy_loader import (
+    DEFAULT_POLICY_PATH,
+    load_write_policy_text,
+)
+from custom_components.fronius_pv_manager.write_runtime import (
+    WriteVerificationMismatchError,
+)
+from tests.control_entity_fakes import (
+    ControlCoordinator,
+    FailingReadBackTransport,
+)
 from tests.runtime_fakes import FakeEntry
 
 PV = "PV (Charging from grid disabled)"
@@ -27,8 +39,34 @@ async def select_entities(policy: WritePolicy):
 
 
 @pytest.mark.asyncio
-async def test_default_policy_exposes_no_select() -> None:
-    """ChaGriSet remains absent because the shipped policy does not approve it."""
+async def test_default_policy_exposes_one_storage_select() -> None:
+    """The shipped ChaGriSet approval creates its cataloged storage control."""
+    policies = load_write_policy_text(DEFAULT_POLICY_PATH.read_text(encoding="utf-8"))
+    coordinator = ControlCoordinator(policies)
+    entry = FakeEntry({})
+    entry.runtime_data = coordinator
+    entities = []
+
+    await async_setup_entry(
+        coordinator.hass, entry, lambda items: entities.extend(items)
+    )
+
+    assert len(entities) == 1
+    entity = entities[0]
+    assert entity._source.register_name == "ChaGriSet"
+    assert entity._source.role is PhysicalDeviceRole.STORAGE
+    assert entity.entity_description.entity_category is EntityCategory.CONFIG
+    assert not entity.entity_description.entity_registry_enabled_default
+    assert entity.options == [PV, GRID]
+    assert entity.current_option == PV
+    assert entity.device_info["identifiers"] == {
+        ("fronius_pv_manager", "test-entry:device1:storage")
+    }
+
+
+@pytest.mark.asyncio
+async def test_missing_charging_source_approval_exposes_no_select() -> None:
+    """Removing the exact ChaGriSet approval removes its writable entity."""
     coordinator = ControlCoordinator(
         {(124, "MinRsvPct"): WritePolicy(124, "MinRsvPct", 0, 100)}
     )
@@ -92,3 +130,28 @@ async def test_successful_selection_uses_verified_write_and_refresh() -> None:
     assert coordinator.control_transport.write_calls == [(41015, (1,))]
     assert coordinator.refresh_requests == 1
     assert entity.current_option == GRID
+
+
+@pytest.mark.asyncio
+async def test_verification_failure_does_not_publish_requested_option() -> None:
+    """A failed readback retains the last coordinator-confirmed select state."""
+    policy = WritePolicy(
+        124, "ChaGriSet", allowed_enum_values=frozenset({0, 1})
+    )
+    coordinator = ControlCoordinator(
+        {(124, "ChaGriSet"): policy}, transport=FailingReadBackTransport()
+    )
+    entry = FakeEntry({})
+    entry.runtime_data = coordinator
+    entities = []
+    await async_setup_entry(
+        coordinator.hass, entry, lambda items: entities.extend(items)
+    )
+    entity = entities[0]
+
+    with pytest.raises(WriteVerificationMismatchError):
+        await entity.async_select_option(GRID)
+
+    assert coordinator.control_transport.write_calls == [(41015, (1,))]
+    assert coordinator.refresh_requests == 0
+    assert entity.current_option == PV

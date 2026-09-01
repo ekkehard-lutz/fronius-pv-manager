@@ -5,3 +5,7 @@ models:
     MinRsvPct:
       minimum: 0
       maximum: 100
+    ChaGriSet:
+      values:
+        - 0
+        - 1

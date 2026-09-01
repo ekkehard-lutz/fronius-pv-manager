@@ -62,6 +62,10 @@ file is not writable through the Home Assistant runtime. Policy ranges, enum
 choices, and bit masks may narrow documented constraints but can never broaden
 them or bypass the encoder.
 
+The shipped default policy approves only Model 124 `MinRsvPct` from 0 through
+100 percent and `ChaGriSet` for its documented PV-disabled and GRID-enabled
+choices. All other writable registers remain unapproved.
+
 On first config-entry setup, the integration copies its conservative packaged
 default to the installation path. Existing installation policy is never
 overwritten, so it survives HACS updates. The complete YAML file is safely

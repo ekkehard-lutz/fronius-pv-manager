@@ -1,10 +1,14 @@
 """Tests for policy-approved Home Assistant select entities."""
 
+import json
+from pathlib import Path
+
 import pytest
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.fronius_pv_manager.models import PhysicalDeviceRole
+from custom_components.fronius_pv_manager.register_maps import MODEL_124
 from custom_components.fronius_pv_manager.select import async_setup_entry
 from custom_components.fronius_pv_manager.write_policy import WritePolicy
 from custom_components.fronius_pv_manager.write_policy_loader import (
@@ -20,8 +24,10 @@ from tests.control_entity_fakes import (
 )
 from tests.runtime_fakes import FakeEntry
 
-PV = "PV (Charging from grid disabled)"
-GRID = "GRID (Charging from grid enabled)"
+PV = "0"
+GRID = "1"
+PV_LABEL = "PV (Charging from grid disabled)"
+GRID_LABEL = "GRID (Charging from grid enabled)"
 
 
 async def select_entities(policy: WritePolicy):
@@ -94,7 +100,7 @@ async def test_empty_enum_subset_exposes_no_select() -> None:
 
 @pytest.mark.asyncio
 async def test_select_options_come_from_documented_enum_and_policy_subset() -> None:
-    """An explicit enum subset narrows authoritative register options."""
+    """An enum subset narrows stable keys backed by authoritative raw values."""
     _, full = await select_entities(WritePolicy(124, "ChaGriSet"))
     _, narrowed = await select_entities(
         WritePolicy(124, "ChaGriSet", allowed_enum_values=frozenset({1}))
@@ -133,6 +139,18 @@ async def test_successful_selection_uses_verified_write_and_refresh() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pv_selection_writes_authoritative_raw_zero() -> None:
+    """The translated PV UI option key resolves to documented raw value zero."""
+    coordinator, entities = await select_entities(WritePolicy(124, "ChaGriSet"))
+
+    await entities[0].async_select_option(PV)
+
+    assert coordinator.control_transport.write_calls == [(41015, (0,))]
+    assert coordinator.refresh_requests == 1
+    assert entities[0].current_option == PV
+
+
+@pytest.mark.asyncio
 async def test_verification_failure_does_not_publish_requested_option() -> None:
     """A failed readback retains the last coordinator-confirmed select state."""
     policy = WritePolicy(
@@ -155,3 +173,33 @@ async def test_verification_failure_does_not_publish_requested_option() -> None:
     assert coordinator.control_transport.write_calls == [(41015, (1,))]
     assert coordinator.refresh_requests == 0
     assert entity.current_option == PV
+
+
+def test_select_option_translations_match_stable_keys_and_enum_semantics() -> None:
+    """English and German resources localize the two stable enum option keys."""
+    root = Path(__file__).parents[1] / "custom_components" / "fronius_pv_manager"
+    resources = {
+        language: json.loads((root / path).read_text(encoding="utf-8"))
+        for language, path in (
+            ("source", "strings.json"),
+            ("en", "translations/en.json"),
+            ("de", "translations/de.json"),
+        )
+    }
+    english = {"0": PV_LABEL, "1": GRID_LABEL}
+    german = {
+        "0": "PV (Netzladung deaktiviert)",
+        "1": "GRID (Netzladung aktiviert)",
+    }
+
+    assert resources["source"]["entity"]["select"]["model_124_chagriset"][
+        "state"
+    ] == english
+    assert resources["en"]["entity"]["select"]["model_124_chagriset"][
+        "state"
+    ] == english
+    assert resources["de"]["entity"]["select"]["model_124_chagriset"][
+        "state"
+    ] == german
+    register = next(item for item in MODEL_124.registers if item.name == "ChaGriSet")
+    assert register.enum == {0: PV_LABEL, 1: GRID_LABEL}

@@ -677,7 +677,13 @@
       "model_124_inoutwrte_rvrttms": {"name": "Charge/discharge reversion timeout"}
     },
     "select": {
-      "model_124_chagriset": {"name": "Grid charging"}
+      "model_124_chagriset": {
+        "name": "Grid charging",
+        "state": {
+          "0": "PV (Charging from grid disabled)",
+          "1": "GRID (Charging from grid enabled)"
+        }
+      }
     }
   }
 }

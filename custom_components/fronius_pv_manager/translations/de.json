@@ -677,7 +677,13 @@
       "model_124_inoutwrte_rvrttms": {"name": "Rückfallzeit für Laden und Entladen"}
     },
     "select": {
-      "model_124_chagriset": {"name": "Netzladung"}
+      "model_124_chagriset": {
+        "name": "Netzladung",
+        "state": {
+          "0": "PV (Netzladung deaktiviert)",
+          "1": "GRID (Netzladung aktiviert)"
+        }
+      }
     }
   }
 }

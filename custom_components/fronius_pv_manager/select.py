@@ -94,9 +94,15 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        """Return the latest confirmed documented enum label."""
+        """Map the latest confirmed enum semantic to its stable option key."""
         value = current_control_value(self.coordinator, self._source)
-        return value if isinstance(value, str) and value in self.options else None
+        documented = self._source.register.enum or {}
+        raw = next(
+            (raw for raw, label in documented.items() if label == value),
+            value if type(value) is int else None,
+        )
+        option = str(raw) if raw is not None else None
+        return option if option in self.options else None
 
     async def async_select_option(self, option: str) -> None:
         """Resolve a documented option and use the verified write runtime."""
@@ -112,11 +118,11 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
 
 
 def _policy_options(source: ControlEntitySource) -> dict[str, int]:
-    """Return documented enum labels narrowed by the runtime policy subset."""
+    """Return stable raw-value keys narrowed by the runtime policy subset."""
     documented = source.register.enum or {}
     allowed = source.policy.allowed_enum_values
     return {
-        label: raw
-        for raw, label in documented.items()
+        str(raw): raw
+        for raw in documented
         if allowed is None or raw in allowed
     }

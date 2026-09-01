@@ -68,6 +68,9 @@ only makes it visible; it does not grant Modbus write permission. A missing
 policy entry leaves the entity readable but write-protected. An entry may set
 `enabled: false` to temporarily deny writes while retaining and validating its
 configured constraints. Omitting `enabled` is equivalent to `enabled: true`.
+Home Assistant 2026.8 has no native read-only NUMBER/SELECT presentation, so a
+write-protected control may still look editable; the backend rejects its write
+before Modbus I/O.
 
 The shipped default policy approves only Model 124 `MinRsvPct` from 0 through
 100 percent and `ChaGriSet` for its documented PV-disabled and GRID-enabled

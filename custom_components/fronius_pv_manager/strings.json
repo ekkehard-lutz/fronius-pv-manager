@@ -126,7 +126,12 @@
         }
       },
       "model_103_stvnd": {
-        "name": "Vendor operating state"
+        "name": "Vendor operating state",
+        "state": {
+          "off": "Off", "sleeping": "Sleeping", "starting": "Starting",
+          "mppt": "MPPT", "throttled": "Throttled",
+          "shutting_down": "Shutting down", "fault": "Fault", "standby": "Standby"
+        }
       },
       "model_103_tmpcab": {
         "name": "Cabinet temperature"
@@ -159,7 +164,8 @@
         "name": "Maximum RMS AC current capability"
       },
       "model_120_dertyp": {
-        "name": "Type of distributed energy resource device"
+        "name": "Type of distributed energy resource device",
+        "state": {"pv_stor": "PV and storage"}
       },
       "model_120_maxcharte": {
         "name": "Maximum energy transfer rate into storage"
@@ -201,10 +207,12 @@
         "name": "Continuous inverter power output capability"
       },
       "model_121_clctotva": {
-        "name": "Total apparent-power calculation"
+        "name": "Total apparent-power calculation",
+        "state": {"vector": "Vector", "arithmetic": "Arithmetic"}
       },
       "model_121_connph": {
-        "name": "Connected single-phase identity"
+        "name": "Connected single-phase identity",
+        "state": {"a": "A", "b": "B", "c": "C"}
       },
       "model_121_ecpnomhz": {
         "name": "Nominal ECP frequency"
@@ -228,7 +236,11 @@
         "name": "Maximum apparent power setpoint"
       },
       "model_121_varact": {
-        "name": "VAR action"
+        "name": "VAR action",
+        "state": {
+          "switch": "Switch",
+          "maintain_var_characterization": "Maintain VAR characterization"
+        }
       },
       "model_121_varmaxq1": {
         "name": "Maximum reactive power setting in quadrant 1"
@@ -315,7 +327,10 @@
         "name": "Reactive power as a percentage of VArAval"
       },
       "model_123_varpct_mod": {
-        "name": "VAR limit mode"
+        "name": "VAR limit mode",
+        "state": {
+          "var_limit_as_a_percent_of_varmax": "VAR limit as a percentage of VArMax"
+        }
       },
       "model_123_varwmaxpct": {
         "name": "Reactive power as a percentage of WMax"
@@ -324,7 +339,12 @@
         "name": "Power-limit ramp time"
       },
       "model_124_chast": {
-        "name": "Storage charge status"
+        "name": "Storage charge status",
+        "state": {
+          "off": "Off", "empty": "Empty", "discharging": "Discharging",
+          "charging": "Charging", "full": "Full", "holding": "Holding",
+          "testing": "Testing"
+        }
       },
       "model_124_chastate": {
         "name": "State of charge"

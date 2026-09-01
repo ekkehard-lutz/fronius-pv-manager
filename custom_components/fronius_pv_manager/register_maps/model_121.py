@@ -290,6 +290,7 @@ MODEL_121 = attach_entities(
             category=EntityCategoryHint.CONFIG,
             enabled=False,
             role=PhysicalDeviceRole.INVERTER,
+            translate_enum_values=name in {"VArAct", "ClcTotVA", "ConnPh"},
         )
         for name in (
             "WMax", "VRef", "VRefOfs", "VMax", "VMin", "VAMax", "VArMaxQ1",

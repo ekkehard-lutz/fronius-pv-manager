@@ -28,6 +28,9 @@ from custom_components.fronius_pv_manager.models import (
 from custom_components.fronius_pv_manager.register_maps import (
     MODEL_1,
     MODEL_103,
+    MODEL_120,
+    MODEL_121,
+    MODEL_123,
     MODEL_124,
     MODEL_160,
     MODEL_203,
@@ -455,6 +458,91 @@ async def test_unknown_inverter_state_is_safe() -> None:
 
 
 @pytest.mark.asyncio
+async def test_storage_charge_status_uses_stable_translatable_options() -> None:
+    """Every mapped storage status is exposed as a language-neutral option."""
+    expected = [
+        "off", "empty", "discharging", "charging", "full", "holding", "testing"
+    ]
+    for raw_value, option in enumerate(expected, start=1):
+        payload = [0] * 24
+        payload[9] = raw_value
+        _, entities, transport = await _entities_for(_snapshot(MODEL_124, payload))
+        status = _by_register(entities, "ChaSt")[0]
+
+        assert status.device_class is SensorDeviceClass.ENUM
+        assert status.options == expected
+        assert status.native_value == option
+        assert status.unique_id == "test-entry_device1_storage_model_124_chast"
+        assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_storage_charge_status_is_safe() -> None:
+    """An unmapped future storage status remains unknown without raising."""
+    payload = [0] * 24
+    payload[9] = 8
+    _, entities, _ = await _entities_for(_snapshot(MODEL_124, payload))
+
+    assert _by_register(entities, "ChaSt")[0].native_value is None
+
+
+@pytest.mark.asyncio
+async def test_other_mapped_sensor_enums_use_stable_options() -> None:
+    """Mapped technical sensor enums also use Home Assistant enum semantics."""
+    payload_120 = [0] * 26
+    payload_120[0] = 82
+    payload_103 = [0] * 50
+    payload_103[37] = 1
+    payload_121 = [0] * 30
+    payload_121[15] = 1
+    payload_121[16] = 2
+    payload_121[19] = 3
+    payload_123 = [0] * 24
+    payload_123[19] = 2
+    _, entities, _ = await _entities_for(
+        _snapshot(MODEL_103, payload_103),
+        _snapshot(MODEL_120, payload_120),
+        _snapshot(MODEL_121, payload_121),
+        _snapshot(MODEL_123, payload_123),
+    )
+
+    expected = {
+        (103, "StVnd"): "off",
+        (120, "DERTyp"): "pv_stor",
+        (121, "VArAct"): "switch",
+        (121, "ClcTotVA"): "arithmetic",
+        (121, "ConnPh"): "c",
+        (123, "VArPct_Mod"): "var_limit_as_a_percent_of_varmax",
+    }
+    for (model_id, register_name), option in expected.items():
+        entity = next(
+            item
+            for item in entities
+            if item._source.model_id == model_id
+            and item._source.register_name == register_name
+        )
+        assert entity.device_class is SensorDeviceClass.ENUM
+        assert entity.native_value == option
+
+
+@pytest.mark.asyncio
+async def test_storage_state_of_charge_uses_battery_percentage_metadata() -> None:
+    """State of charge presents its decoded value as a battery percentage."""
+    payload = [0] * 24
+    payload[6] = 524
+    payload[20] = 0xFFFF
+    _, entities, transport = await _entities_for(_snapshot(MODEL_124, payload))
+    state_of_charge = _by_register(entities, "ChaState")[0]
+
+    assert state_of_charge.native_value == 52.4
+    assert state_of_charge.native_unit_of_measurement == "%"
+    assert state_of_charge.device_class is SensorDeviceClass.BATTERY
+    assert state_of_charge.state_class is SensorStateClass.MEASUREMENT
+    assert state_of_charge.unique_id == "test-entry_device1_storage_model_124_chastate"
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
 async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> None:
     """Recognized repeated modules create sensors on their classified devices."""
     payload = [0] * 88
@@ -628,6 +716,26 @@ def test_storage_names_and_inverter_state_translations() -> None:
         "shutting_down": "Fährt herunter",
         "fault": "Fehler",
         "standby": "Bereitschaft",
+    }
+    translated_enum_keys = {
+        "model_103_stvnd",
+        "model_120_dertyp",
+        "model_121_varact",
+        "model_121_clctotva",
+        "model_121_connph",
+        "model_123_varpct_mod",
+        "model_124_chast",
+    }
+    assert all(english[key].get("state") for key in translated_enum_keys)
+    assert all(german[key].get("state") for key in translated_enum_keys)
+    assert german["model_124_chast"]["state"] == {
+        "off": "Aus",
+        "empty": "Leer",
+        "discharging": "Entlädt",
+        "charging": "Lädt",
+        "full": "Voll",
+        "holding": "Holding",
+        "testing": "Testbetrieb",
     }
     assert german_document["config"]["step"]["user"]["data"]["device_ids"] == (
         "Modbus-Geräte-IDs"

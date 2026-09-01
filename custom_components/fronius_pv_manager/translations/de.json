@@ -126,7 +126,12 @@
         }
       },
       "model_103_stvnd": {
-        "name": "Herstellerspezifischer Betriebszustand"
+        "name": "Herstellerspezifischer Betriebszustand",
+        "state": {
+          "off": "Aus", "sleeping": "Schlafmodus", "starting": "Startet",
+          "mppt": "MPPT", "throttled": "Leistungsbegrenzt",
+          "shutting_down": "Fährt herunter", "fault": "Fehler", "standby": "Bereitschaft"
+        }
       },
       "model_103_tmpcab": {
         "name": "Gehäusetemperatur"
@@ -159,7 +164,8 @@
         "name": "Maximaler AC-RMS-Strom"
       },
       "model_120_dertyp": {
-        "name": "Typ der dezentralen Energieerzeugungsanlage"
+        "name": "Typ der dezentralen Energieerzeugungsanlage",
+        "state": {"pv_stor": "PV und Speicher"}
       },
       "model_120_maxcharte": {
         "name": "Maximale Energieübertragungsrate beim Laden"
@@ -201,10 +207,12 @@
         "name": "Dauerhafte Wirkleistungsfähigkeit des Wechselrichters"
       },
       "model_121_clctotva": {
-        "name": "Berechnung der Gesamtscheinleistung"
+        "name": "Berechnung der Gesamtscheinleistung",
+        "state": {"vector": "Vektoriell", "arithmetic": "Arithmetisch"}
       },
       "model_121_connph": {
-        "name": "Angeschlossene Phase bei einphasigem Betrieb"
+        "name": "Angeschlossene Phase bei einphasigem Betrieb",
+        "state": {"a": "A", "b": "B", "c": "C"}
       },
       "model_121_ecpnomhz": {
         "name": "Nennfrequenz am ECP"
@@ -228,7 +236,11 @@
         "name": "Maximaler Scheinleistungs-Sollwert"
       },
       "model_121_varact": {
-        "name": "Blindleistungsaktion"
+        "name": "Blindleistungsaktion",
+        "state": {
+          "switch": "Umschalten",
+          "maintain_var_characterization": "VAR-Kennlinie beibehalten"
+        }
       },
       "model_121_varmaxq1": {
         "name": "Maximaler Blindleistungs-Sollwert in Quadrant 1"
@@ -315,7 +327,10 @@
         "name": "Blindleistung in Prozent von VArAval"
       },
       "model_123_varpct_mod": {
-        "name": "VAR-Begrenzungsmodus"
+        "name": "VAR-Begrenzungsmodus",
+        "state": {
+          "var_limit_as_a_percent_of_varmax": "VAR-Begrenzung als Prozentsatz von VArMax"
+        }
       },
       "model_123_varwmaxpct": {
         "name": "Blindleistung in Prozent von WMax"
@@ -324,7 +339,12 @@
         "name": "Rampenzeit der Wirkleistungsbegrenzung"
       },
       "model_124_chast": {
-        "name": "Speicher-Ladestatus"
+        "name": "Speicher-Ladestatus",
+        "state": {
+          "off": "Aus", "empty": "Leer", "discharging": "Entlädt",
+          "charging": "Lädt", "full": "Voll", "holding": "Holding",
+          "testing": "Testbetrieb"
+        }
       },
       "model_124_chastate": {
         "name": "Ladezustand"

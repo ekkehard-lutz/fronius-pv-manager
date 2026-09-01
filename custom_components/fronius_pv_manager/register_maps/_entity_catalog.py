@@ -22,6 +22,9 @@ def entity(
     role: PhysicalDeviceRole | None = None,
     block_name: str | None = None,
     translate_enum_values: bool = False,
+    device_class: str | None = None,
+    state_class: str | None = None,
+    presentation_unit: str | None = None,
 ) -> EntityDefinition:
     """Create stable Home Assistant-independent entity metadata."""
     block = f"_{block_name}" if block_name is not None else ""
@@ -31,6 +34,9 @@ def entity(
         key=key,
         translation_key=key,
         translate_enum_values=translate_enum_values,
+        device_class=device_class,
+        state_class=state_class,
+        presentation_unit=presentation_unit,
         category=category,
         enabled_by_default=enabled,
         device_role=role,

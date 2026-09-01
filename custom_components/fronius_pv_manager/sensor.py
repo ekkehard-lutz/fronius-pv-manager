@@ -317,6 +317,7 @@ def _sensor_metadata(
     register: RegisterDefinition, entity: EntityDefinition
 ) -> tuple[str | None, SensorDeviceClass | None, SensorStateClass | None]:
     """Return canonical units/classes without altering decoded values."""
+    unit = entity.presentation_unit or register.unit
     if entity.device_class is not None or entity.state_class is not None:
         device_class = (
             SensorDeviceClass(entity.device_class)
@@ -328,8 +329,8 @@ def _sensor_metadata(
             if entity.state_class is not None
             else None
         )
-        return register.unit, device_class, state_class
-    if register.unit == "Wh" and register.data_type in {
+        return unit, device_class, state_class
+    if unit == "Wh" and register.data_type in {
         RegisterDataType.ACC32,
         RegisterDataType.ACC64,
     }:
@@ -338,7 +339,7 @@ def _sensor_metadata(
             SensorDeviceClass.ENERGY,
             SensorStateClass.TOTAL_INCREASING,
         )
-    return _UNIT_METADATA.get(register.unit, (register.unit, None, None))
+    return _UNIT_METADATA.get(unit, (unit, None, None))
 
 
 def _clean_metadata_value(value: Any) -> str | None:
@@ -422,4 +423,5 @@ def _model_160_translation_key(
 
 def _enum_option(label: str) -> str:
     """Normalize one decoded enum label to a stable HA option identifier."""
+    label = label.replace("%", " percent ")
     return re.sub(r"[^a-z0-9]+", "_", label.casefold()).strip("_")

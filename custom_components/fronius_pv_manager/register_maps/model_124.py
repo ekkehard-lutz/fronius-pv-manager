@@ -307,6 +307,10 @@ MODEL_124 = attach_entities(
                 name,
                 enabled=name in {"ChaState", "ChaSt"},
                 role=_ROLE,
+                translate_enum_values=name == "ChaSt",
+                device_class="battery" if name == "ChaState" else None,
+                state_class="measurement" if name == "ChaState" else None,
+                presentation_unit="%" if name == "ChaState" else None,
             )
             for name in (
                 "WChaGra", "WDisChaGra", "ChaState", "StorAval", "InBatV",

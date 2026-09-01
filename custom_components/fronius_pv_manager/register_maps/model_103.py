@@ -333,7 +333,7 @@ MODEL_103 = attach_entities(
                     "St",
                 },
                 role=_ROLE,
-                translate_enum_values=name == "St",
+                translate_enum_values=name in {"St", "StVnd"},
             )
             for name in (
                 "A", "AphA", "AphB", "AphC", "PPVphAB", "PPVphBC", "PPVphCA",
@@ -348,6 +348,7 @@ MODEL_103 = attach_entities(
                 category=EntityCategoryHint.DIAGNOSTIC,
                 enabled=False,
                 role=_ROLE,
+                translate_enum_values=name == "StVnd",
             )
             for name in (
                 "TmpCab", "TmpSnk", "TmpTrns", "TmpOt", "StVnd", "Evt1", "Evt2",

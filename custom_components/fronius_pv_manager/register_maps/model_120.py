@@ -249,6 +249,7 @@ MODEL_120 = attach_entities(
             category=EntityCategoryHint.DIAGNOSTIC,
             enabled=False,
             role=PhysicalDeviceRole.INVERTER,
+            translate_enum_values=name == "DERTyp",
         )
         for name in (
             "DERTyp", "WRtg", "VARtg", "VArRtgQ1", "VArRtgQ2", "VArRtgQ3",

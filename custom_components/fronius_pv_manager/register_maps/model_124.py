@@ -117,6 +117,7 @@ _REGISTERS = (
         unit="% WChaMax",
         scale_factor="MinRsvPct_SF",
         description="Minimum storage reserve percentage setpoint.",
+        valid_range=ValueRange(minimum=0, maximum=100),
         poll_class=PollClass.SLOW,
     ),
     _register(

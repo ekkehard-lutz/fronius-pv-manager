@@ -67,6 +67,44 @@ def test_valid_narrower_numeric_range_is_accepted() -> None:
 
 
 @pytest.mark.parametrize(
+    "minimum, maximum",
+    [(0, 100), (5, 20)],
+)
+def test_minimum_reserve_policy_can_match_or_narrow_hard_range(
+    minimum: int, maximum: int
+) -> None:
+    """Installation bounds may match or narrow the authoritative 0..100 range."""
+    policies = load_write_policy_text(
+        policy_yaml(
+            "    MinRsvPct:\n"
+            f"      minimum: {minimum}\n"
+            f"      maximum: {maximum}\n"
+        )
+    )
+    assert policies[(124, "MinRsvPct")].minimum == minimum
+    assert policies[(124, "MinRsvPct")].maximum == maximum
+
+
+@pytest.mark.parametrize(
+    "minimum, maximum, message",
+    [(-1, 100, "broadens the register minimum"),
+     (0, 101, "broadens the register maximum")],
+)
+def test_minimum_reserve_policy_cannot_broaden_hard_range(
+    minimum: int, maximum: int, message: str
+) -> None:
+    """Installation policy cannot exceed MinRsvPct manufacturer constraints."""
+    with pytest.raises(WritePolicyLoadError, match=message):
+        load_write_policy_text(
+            policy_yaml(
+                "    MinRsvPct:\n"
+                f"      minimum: {minimum}\n"
+                f"      maximum: {maximum}\n"
+            )
+        )
+
+
+@pytest.mark.parametrize(
     "body, message",
     [
         ("    OutWRte:\n      minimum: -101\n", "broadens the register minimum"),

@@ -54,9 +54,7 @@ def test_minimum_storage_reserve_rejects_outside_policy_range(value: int) -> Non
 
 def test_policy_cannot_broaden_protocol_range_or_approve_read_only() -> None:
     """Policy validation preserves protocol bounds, increments, and access."""
-    constrained = replace(
-        register("MinRsvPct"), valid_range=ValueRange(0, 100, 1)
-    )
+    constrained = replace(register("MinRsvPct"), valid_range=ValueRange(0, 100, 1))
     for policy in (
         WritePolicy(124, "MinRsvPct", minimum=-1, maximum=100, step=1),
         WritePolicy(124, "MinRsvPct", minimum=0, maximum=101, step=1),

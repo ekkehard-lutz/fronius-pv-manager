@@ -122,6 +122,7 @@ def test_model_124_valid_ranges_match_worksheet() -> None:
     assert ranges == {
         "WChaGra": ValueRange(minimum=100, maximum=100),
         "WDisChaGra": ValueRange(minimum=100, maximum=100),
+        "MinRsvPct": ValueRange(minimum=0, maximum=100),
         "OutWRte": ValueRange(minimum=-100, maximum=100),
         "InWRte": ValueRange(minimum=-100, maximum=100),
         "InOutWRte_RvrtTms": ValueRange(minimum=0, maximum=28800),

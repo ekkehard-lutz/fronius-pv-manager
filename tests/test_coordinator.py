@@ -4,7 +4,13 @@ import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.fronius_pv_manager.coordinator import FroniusPVCoordinator
-from tests.runtime_fakes import FakeEntry, FakeHass, FakeTransport, model_chain
+from tests.runtime_fakes import (
+    FakeEndpoint,
+    FakeEntry,
+    FakeHass,
+    FakeTransport,
+    model_chain,
+)
 
 
 def coordinator_with_models(*models: tuple[int, int]):
@@ -153,6 +159,54 @@ async def test_partial_failure_keeps_other_device_snapshot_fresh() -> None:
     assert data.devices[0].decoded_models
     assert not data.devices[1].available
     assert data.devices[1].decoded_models == ()
+
+
+@pytest.mark.asyncio
+async def test_shared_endpoint_resets_after_first_device_and_recovers_second() -> None:
+    """One failed view resets the session before the next device reconnects."""
+    registers_1, _ = model_chain((103, 50))
+    registers_200, _ = model_chain((203, 105))
+    inverter = FakeTransport(registers_1)
+    meter = FakeTransport(registers_200)
+    endpoint = FakeEndpoint({1: inverter, 200: meter})
+    coordinator = FroniusPVCoordinator(
+        FakeHass(),
+        FakeEntry({}),
+        {1: endpoint.bind(1), 200: endpoint.bind(200)},
+    )
+    await coordinator.async_discover()
+    inverter.fail_reads = True
+
+    data = await coordinator._async_update_data()
+
+    assert not data.devices[0].available
+    assert data.devices[0].decoded_models == ()
+    assert data.devices[1].available
+    assert data.devices[1].decoded_models
+    assert endpoint.reset_calls == 1
+    assert endpoint.connect_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_shared_endpoint_still_fails_refresh_when_all_devices_fail() -> None:
+    """Session recovery does not mask an overall endpoint refresh failure."""
+    registers_1, _ = model_chain((103, 50))
+    registers_200, _ = model_chain((203, 105))
+    inverter = FakeTransport(registers_1)
+    meter = FakeTransport(registers_200)
+    endpoint = FakeEndpoint({1: inverter, 200: meter})
+    coordinator = FroniusPVCoordinator(
+        FakeHass(),
+        FakeEntry({}),
+        {1: endpoint.bind(1), 200: endpoint.bind(200)},
+    )
+    await coordinator.async_discover()
+    inverter.fail_reads = meter.fail_reads = True
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+
+    assert endpoint.reset_calls == 2
 
 
 @pytest.mark.asyncio

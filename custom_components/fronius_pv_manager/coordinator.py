@@ -17,7 +17,7 @@ from .models import DiscoveredModel, SunSpecModelDefinition
 from .register_maps import get_model_definition
 from .sunspec import SunSpecDiscovery
 from .transport import (
-    ModbusTcpTransport,
+    ModbusDeviceTransport,
     ModbusTransportError,
     read_holding_registers_chunked,
 )
@@ -68,13 +68,13 @@ class FroniusPVCoordinatorData:
 
 
 class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
-    """Own persistent per-device transports and poll discovered topologies."""
+    """Own device-bound views and poll their discovered topologies."""
 
     def __init__(
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        transports: Mapping[int, ModbusTcpTransport],
+        transports: Mapping[int, ModbusDeviceTransport],
         write_policies: Mapping[tuple[int, str], WritePolicy] | None = None,
     ) -> None:
         super().__init__(
@@ -91,6 +91,8 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
             int, tuple[DiscoveredModel, ...]
         ] = {}
         self.write_policies = MappingProxyType(dict(write_policies or {}))
+        # This serializes this config entry only; external Modbus clients remain
+        # independent TCP sessions outside Home Assistant's control.
         self._io_lock = asyncio.Lock()
         self.write_runtime = FroniusPVWriteRuntime(self)
 
@@ -118,8 +120,12 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     def _connect_and_discover(self) -> dict[int, tuple[DiscoveredModel, ...]]:
         """Connect and discover every configured device synchronously."""
         discovered = {}
+        connected: set[int] = set()
         for device_id, transport in self.transports.items():
-            transport.connect()
+            owner = getattr(transport, "endpoint", transport)
+            if id(owner) not in connected:
+                owner.connect()
+                connected.add(id(owner))
             discovered[device_id] = SunSpecDiscovery(transport).discover()
         return discovered
 
@@ -153,7 +159,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
 
     @staticmethod
     def _poll_device(
-        transport: ModbusTcpTransport,
+        transport: ModbusDeviceTransport,
         discovered_models: tuple[DiscoveredModel, ...],
     ) -> tuple[DecodedModelSnapshot, ...]:
         """Decode all supported models for one device context."""
@@ -177,16 +183,21 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         return tuple(decoded_models)
 
     async def async_close(self) -> None:
-        """Close every owned synchronous transport in the executor."""
+        """Close each unique synchronous endpoint in the executor."""
         async with self._io_lock:
             await self.hass.async_add_executor_job(self._close_transports)
 
     def _close_transports(self) -> None:
-        """Attempt every close and raise the first transport error afterward."""
+        """Attempt every unique endpoint close and raise the first error."""
         first_error = None
+        closed: set[int] = set()
         for transport in self.transports.values():
+            owner = getattr(transport, "endpoint", transport)
+            if id(owner) in closed:
+                continue
+            closed.add(id(owner))
             try:
-                transport.close()
+                owner.close()
             except ModbusTransportError as err:
                 if first_error is None:
                     first_error = err

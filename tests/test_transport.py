@@ -8,8 +8,10 @@ import pytest
 from custom_components.fronius_pv_manager import transport as transport_module
 from custom_components.fronius_pv_manager.transport import (
     ModbusConnectionError,
+    ModbusTcpEndpointTransport,
     ModbusTcpTransport,
     ModbusTransportError,
+    read_holding_registers_chunked,
 )
 
 
@@ -24,6 +26,95 @@ def create_transport(
         "inverter.local", port=1502, retries=0, reconnect_delay=0
     )
     return transport
+
+
+def create_endpoint(monkeypatch: pytest.MonkeyPatch, client: Mock):
+    """Create one endpoint and two device views backed by one mock client."""
+    client.connect.return_value = True
+    client_factory = Mock(return_value=client)
+    monkeypatch.setattr(transport_module, "ModbusTcpClient", client_factory)
+    endpoint = ModbusTcpEndpointTransport("inverter.local", port=1502)
+    client_factory.assert_called_once_with(
+        "inverter.local", port=1502, retries=0, reconnect_delay=0
+    )
+    return endpoint, endpoint.bind(1), endpoint.bind(200)
+
+
+def test_bound_views_share_one_endpoint_and_forward_device_ids(monkeypatch) -> None:
+    """Two device contexts share one client and retain request unit metadata."""
+    response = SimpleNamespace(isError=lambda: False, registers=[7])
+    client = Mock()
+    client.read_holding_registers.return_value = response
+    endpoint, inverter, meter = create_endpoint(monkeypatch, client)
+
+    assert inverter.endpoint is endpoint
+    assert meter.endpoint is endpoint
+    assert inverter.read_holding_registers(40000, 1) == (7,)
+    assert meter.read_holding_registers(40001, 1) == (7,)
+    assert client.read_holding_registers.call_args_list == [
+        ((40000,), {"count": 1, "device_id": 1}),
+        ((40001,), {"count": 1, "device_id": 200}),
+    ]
+    client.connect.assert_called_once_with()
+
+
+def test_chunked_reads_keep_bound_device_id(monkeypatch) -> None:
+    """Every chunk of a large payload retains the view's device ID."""
+    client = Mock()
+    client.read_holding_registers.side_effect = [
+        SimpleNamespace(isError=lambda: False, registers=list(range(100))),
+        SimpleNamespace(isError=lambda: False, registers=list(range(100, 105))),
+    ]
+    _, _, meter = create_endpoint(monkeypatch, client)
+
+    assert read_holding_registers_chunked(meter, 40100, 105) == tuple(range(105))
+    assert client.read_holding_registers.call_args_list == [
+        ((40100,), {"count": 100, "device_id": 200}),
+        ((40200,), {"count": 5, "device_id": 200}),
+    ]
+
+
+def test_read_failure_resets_without_retry_and_next_request_reconnects(
+    monkeypatch,
+) -> None:
+    """A failed read closes its session; a later device request starts a new one."""
+    response = SimpleNamespace(isError=lambda: False, registers=[9])
+    client = Mock()
+    client.read_holding_registers.side_effect = [OSError("timeout"), response]
+    _, inverter, meter = create_endpoint(monkeypatch, client)
+
+    with pytest.raises(ModbusTransportError):
+        inverter.read_holding_registers(40000, 1)
+
+    assert client.read_holding_registers.call_count == 1
+    client.close.assert_called_once_with()
+    assert meter.read_holding_registers(40000, 1) == (9,)
+    assert client.connect.call_count == 2
+
+
+def test_write_failure_resets_and_writes_exactly_once(monkeypatch) -> None:
+    """An uncertain write closes the endpoint and is never repeated."""
+    client = Mock()
+    client.write_register.side_effect = OSError("response lost")
+    _, inverter, _ = create_endpoint(monkeypatch, client)
+
+    with pytest.raises(ModbusTransportError):
+        inverter.write_holding_registers(40100, (1,))
+
+    client.write_register.assert_called_once_with(40100, 1, device_id=1)
+    client.close.assert_called_once_with()
+
+
+def test_endpoint_close_is_idempotent(monkeypatch) -> None:
+    """Only one public client close occurs for repeated endpoint closure."""
+    client = Mock()
+    endpoint, _, _ = create_endpoint(monkeypatch, client)
+    endpoint.connect()
+
+    endpoint.close()
+    endpoint.close()
+
+    client.close.assert_called_once_with()
 
 
 def test_successful_transport_connection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,8 +141,11 @@ def test_failed_transport_connection(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_transport_close_calls_client_close(monkeypatch: pytest.MonkeyPatch) -> None:
     """Closing the transport delegates to the public pymodbus close method."""
     client = Mock()
+    client.connect.return_value = True
     transport = create_transport(monkeypatch, client)
 
+    transport.connect()
+    transport.close()
     transport.close()
 
     client.close.assert_called_once_with()
@@ -61,9 +155,11 @@ def test_client_close_exception_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> N
     """A client close failure is retained as the transport error cause."""
     failure = OSError("close failed")
     client = Mock()
+    client.connect.return_value = True
     client.close.side_effect = failure
     transport = create_transport(monkeypatch, client)
 
+    transport.connect()
     with pytest.raises(ModbusTransportError) as raised:
         transport.close()
 
@@ -162,9 +258,9 @@ def test_multiple_register_write_uses_public_client_api(
 )
 def test_invalid_register_writes_are_rejected(address, values) -> None:
     """Transport coordinates and raw words are validated before client access."""
-    transport = object.__new__(ModbusTcpTransport)
+    transport = object.__new__(ModbusTcpEndpointTransport)
     with pytest.raises(ValueError):
-        transport.write_holding_registers(address, values)
+        transport.write_holding_registers(address, values, device_id=1)
 
 
 def test_write_exception_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:

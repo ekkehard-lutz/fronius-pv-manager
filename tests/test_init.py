@@ -21,7 +21,13 @@ from custom_components.fronius_pv_manager.const import (
     CONF_PORT,
 )
 from custom_components.fronius_pv_manager.coordinator import FroniusPVCoordinator
-from tests.runtime_fakes import FakeEntry, FakeHass, FakeTransport, model_chain
+from tests.runtime_fakes import (
+    FakeEndpoint,
+    FakeEntry,
+    FakeHass,
+    FakeTransport,
+    model_chain,
+)
 
 
 def entry_data() -> dict[str, object]:
@@ -29,31 +35,38 @@ def entry_data() -> dict[str, object]:
     return {CONF_HOST: "192.0.2.30", CONF_PORT: 1502, CONF_DEVICE_ID: 7}
 
 
+def install_endpoint_factory(monkeypatch, transports):
+    """Install and return one observable shared endpoint factory result."""
+    endpoint = FakeEndpoint(transports)
+    calls = []
+
+    def factory(host, *, port):
+        calls.append((host, port))
+        return endpoint
+
+    monkeypatch.setattr(integration_module, "ModbusTcpEndpointTransport", factory)
+    return endpoint, calls
+
+
 @pytest.mark.asyncio
 async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> None:
     """Setup discovers, refreshes, and stores the coordinator on the entry."""
     registers, _ = model_chain((1, 65), (999, 2))
     transport = FakeTransport(registers)
-    factory_calls = []
-
-    def factory(host, *, port, device_id):
-        factory_calls.append((host, port, device_id))
-        return transport
-
-    monkeypatch.setattr(integration_module, "ModbusTcpTransport", factory)
+    endpoint, factory_calls = install_endpoint_factory(monkeypatch, {7: transport})
     hass = FakeHass()
     entry = FakeEntry(entry_data())
 
     assert await async_setup_entry(hass, entry)
 
-    assert factory_calls == [("192.0.2.30", 1502, 7)]
+    assert factory_calls == [("192.0.2.30", 1502)]
     assert isinstance(entry.runtime_data, FroniusPVCoordinator)
     assert entry.runtime_data.last_update_success
     assert [model.model_id for model in entry.runtime_data.data.discovered_models] == [
         1,
         999,
     ]
-    assert transport.connect_calls == 1
+    assert endpoint.connect_calls == 1
     assert hass.config_entries.forwarded == [
         (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
     ]
@@ -76,11 +89,7 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     policy_path.write_text(invalid_content, encoding="utf-8")
     registers, _ = model_chain((124, 24))
     transport = FakeTransport(registers)
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda *args, **kwargs: transport,
-    )
+    install_endpoint_factory(monkeypatch, {7: transport})
     hass = FakeHass(config_dir=tmp_path)
     entry = FakeEntry(entry_data())
 
@@ -119,17 +128,13 @@ async def test_temporary_connection_failure_raises_entry_not_ready(
     """A temporarily unavailable endpoint fails setup and closes safely."""
     registers, _ = model_chain((1, 65))
     transport = FakeTransport(registers, connection_error=True)
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda *args, **kwargs: transport,
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, {7: transport})
 
     with pytest.raises(ConfigEntryNotReady) as raised:
         await async_setup_entry(FakeHass(), FakeEntry(entry_data()))
 
     assert raised.value.__cause__ is not None
-    assert transport.close_calls == 1
+    assert endpoint.close_calls == 1
 
 
 @pytest.mark.asyncio
@@ -139,11 +144,7 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     """Unload shuts down polling and releases the persistent Modbus client."""
     registers, _ = model_chain((1, 65))
     transport = FakeTransport(registers)
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda *args, **kwargs: transport,
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, {7: transport})
     hass = FakeHass()
     entry = FakeEntry(entry_data())
     await async_setup_entry(hass, entry)
@@ -152,7 +153,7 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     assert await async_unload_entry(hass, entry)
 
     assert coordinator._shutdown_requested
-    assert transport.close_calls == 1
+    assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
     assert hass.config_entries.unloaded == [
         (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
@@ -164,17 +165,13 @@ async def test_close_failure_does_not_break_unload(monkeypatch) -> None:
     """A broken client close is logged without leaving the entry loaded."""
     registers, _ = model_chain((1, 65))
     transport = FakeTransport(registers, close_error=True)
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda *args, **kwargs: transport,
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, {7: transport})
     hass = FakeHass()
     entry = FakeEntry(entry_data())
     await async_setup_entry(hass, entry)
 
     assert await async_unload_entry(hass, entry)
-    assert transport.close_calls == 1
+    assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
 
 
@@ -183,11 +180,7 @@ async def test_platform_forwarding_failure_rolls_back_runtime(monkeypatch) -> No
     """A platform setup failure shuts down and closes the new runtime."""
     registers, _ = model_chain((1, 65))
     transport = FakeTransport(registers)
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda *args, **kwargs: transport,
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, {7: transport})
     hass = FakeHass()
     hass.config_entries.forward_error = RuntimeError("platform setup failed")
     entry = FakeEntry(entry_data())
@@ -195,7 +188,7 @@ async def test_platform_forwarding_failure_rolls_back_runtime(monkeypatch) -> No
     with pytest.raises(RuntimeError, match="platform setup failed"):
         await async_setup_entry(hass, entry)
 
-    assert transport.close_calls == 1
+    assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
 
 
@@ -204,11 +197,7 @@ async def test_failed_platform_unload_keeps_runtime_active(monkeypatch) -> None:
     """A refused platform unload leaves polling and transport untouched."""
     registers, _ = model_chain((1, 65))
     transport = FakeTransport(registers)
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda *args, **kwargs: transport,
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, {7: transport})
     hass = FakeHass()
     entry = FakeEntry(entry_data())
     await async_setup_entry(hass, entry)
@@ -219,27 +208,21 @@ async def test_failed_platform_unload_keeps_runtime_active(monkeypatch) -> None:
 
     assert entry.runtime_data is coordinator
     assert not coordinator._shutdown_requested
-    assert transport.close_calls == 0
+    assert endpoint.close_calls == 0
 
 
 @pytest.mark.asyncio
-async def test_multiple_configured_device_ids_create_independent_transports(
+async def test_multiple_configured_device_ids_share_one_endpoint(
     monkeypatch,
 ) -> None:
-    """The new generic device ID tuple drives discovery for each participant."""
+    """One endpoint creates two device-bound views for both participants."""
     registers_1, _ = model_chain((103, 50))
     registers_200, _ = model_chain((203, 105))
     transports = {
         1: FakeTransport(registers_1),
         200: FakeTransport(registers_200),
     }
-    factory_calls = []
-
-    def factory(host, *, port, device_id):
-        factory_calls.append((host, port, device_id))
-        return transports[device_id]
-
-    monkeypatch.setattr(integration_module, "ModbusTcpTransport", factory)
+    endpoint, factory_calls = install_endpoint_factory(monkeypatch, transports)
     hass = FakeHass()
     entry = FakeEntry(
         {
@@ -251,10 +234,12 @@ async def test_multiple_configured_device_ids_create_independent_transports(
 
     assert await async_setup_entry(hass, entry)
 
-    assert factory_calls == [
-        ("192.0.2.30", 1502, 1),
-        ("192.0.2.30", 1502, 200),
-    ]
+    assert factory_calls == [("192.0.2.30", 1502)]
+    assert endpoint.connect_calls == 1
+    assert len(entry.runtime_data.transports) == 2
+    assert {
+        transport.endpoint for transport in entry.runtime_data.transports.values()
+    } == {endpoint}
     assert [device.device_id for device in entry.runtime_data.data.devices] == [
         1,
         200,
@@ -272,11 +257,7 @@ async def test_multi_device_platform_failure_closes_all_transports(
         1: FakeTransport(registers_1),
         200: FakeTransport(registers_200),
     }
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda host, *, port, device_id: transports[device_id],
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, transports)
     hass = FakeHass()
     hass.config_entries.forward_error = RuntimeError("platform setup failed")
     entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
@@ -284,7 +265,7 @@ async def test_multi_device_platform_failure_closes_all_transports(
     with pytest.raises(RuntimeError, match="platform setup failed"):
         await async_setup_entry(hass, entry)
 
-    assert all(transport.close_calls == 1 for transport in transports.values())
+    assert endpoint.close_calls == 1
 
 
 @pytest.mark.asyncio
@@ -297,17 +278,13 @@ async def test_multi_device_discovery_failure_closes_all_transports(
         1: FakeTransport(registers),
         200: FakeTransport(registers, connection_error=True),
     }
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda host, *, port, device_id: transports[device_id],
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, transports)
     entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
 
     with pytest.raises(ConfigEntryNotReady):
         await async_setup_entry(FakeHass(), entry)
 
-    assert all(transport.close_calls == 1 for transport in transports.values())
+    assert endpoint.close_calls == 1
 
 
 @pytest.mark.asyncio
@@ -319,19 +296,15 @@ async def test_multi_device_unload_closes_all_or_preserves_all(monkeypatch) -> N
         1: FakeTransport(registers_1),
         200: FakeTransport(registers_200),
     }
-    monkeypatch.setattr(
-        integration_module,
-        "ModbusTcpTransport",
-        lambda host, *, port, device_id: transports[device_id],
-    )
+    endpoint, _ = install_endpoint_factory(monkeypatch, transports)
     hass = FakeHass()
     entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
     await async_setup_entry(hass, entry)
     hass.config_entries.unload_result = False
 
     assert not await async_unload_entry(hass, entry)
-    assert all(transport.close_calls == 0 for transport in transports.values())
+    assert endpoint.close_calls == 0
 
     hass.config_entries.unload_result = True
     assert await async_unload_entry(hass, entry)
-    assert all(transport.close_calls == 1 for transport in transports.values())
+    assert endpoint.close_calls == 1

@@ -18,7 +18,7 @@ from .const import (
 )
 from .coordinator import FroniusPVCoordinator
 from .sunspec import SunSpecDiscoveryError
-from .transport import ModbusTcpTransport, ModbusTransportError
+from .transport import ModbusTcpEndpointTransport, ModbusTransportError
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,12 +57,12 @@ async def async_setup_entry(
             policy_path,
             err,
         )
+    endpoint = ModbusTcpEndpointTransport(
+        entry.data[CONF_HOST],
+        port=entry.data.get(CONF_PORT, DEFAULT_PORT),
+    )
     transports = {
-        device_id: ModbusTcpTransport(
-            entry.data[CONF_HOST],
-            port=entry.data.get(CONF_PORT, DEFAULT_PORT),
-            device_id=device_id,
-        )
+        device_id: endpoint.bind(device_id)
         for device_id in _configured_device_ids(entry)
     }
     coordinator = FroniusPVCoordinator(hass, entry, transports, write_policies)

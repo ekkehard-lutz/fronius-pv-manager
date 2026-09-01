@@ -1,13 +1,19 @@
 """Tests for the serialized Home Assistant register write runtime."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
+from custom_components.fronius_pv_manager import transport as transport_module
 from custom_components.fronius_pv_manager.coordinator import FroniusPVCoordinator
 from custom_components.fronius_pv_manager.models import DiscoveredModel
 from custom_components.fronius_pv_manager.register_maps import MODEL_124
-from custom_components.fronius_pv_manager.transport import ModbusTransportError
+from custom_components.fronius_pv_manager.transport import (
+    ModbusTcpEndpointTransport,
+    ModbusTransportError,
+)
 from custom_components.fronius_pv_manager.write_policy import WritePolicy
 from custom_components.fronius_pv_manager.write_runtime import (
     WriteDeviceNotConfiguredError,
@@ -216,6 +222,33 @@ async def test_read_back_failure_is_distinct_and_not_retried() -> None:
         await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", 10)
 
     assert len(transport.write_calls) == 1
+    assert coordinator.refresh_requests == 0
+
+
+@pytest.mark.asyncio
+async def test_endpoint_readback_failure_resets_without_second_write(
+    monkeypatch,
+) -> None:
+    """Lost verification resets the session but never repeats the write."""
+    client = Mock()
+    client.connect.return_value = True
+    client.read_holding_registers.side_effect = [
+        SimpleNamespace(isError=lambda: False, registers=[0xFFFE]),
+        SimpleNamespace(isError=lambda: False, registers=[700]),
+        OSError("readback timeout"),
+    ]
+    client.write_register.return_value = SimpleNamespace(isError=lambda: False)
+    monkeypatch.setattr(
+        transport_module, "ModbusTcpClient", Mock(return_value=client)
+    )
+    endpoint = ModbusTcpEndpointTransport("inverter.local")
+    coordinator = RecordingCoordinator(FakeHass(), endpoint.bind(1))
+
+    with pytest.raises(WriteReadBackError):
+        await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", 10)
+
+    client.write_register.assert_called_once()
+    client.close.assert_called_once_with()
     assert coordinator.refresh_requests == 0
 
 

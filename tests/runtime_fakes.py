@@ -141,6 +141,64 @@ class FakeTransport:
         return tuple(self.registers[address + offset] for offset in range(count))
 
 
+class FakeEndpoint:
+    """Shared endpoint owner whose bound views use per-device register stores."""
+
+    def __init__(self, transports: dict[int, FakeTransport]) -> None:
+        self.transports = transports
+        self.connect_calls = 0
+        self.close_calls = 0
+        self.reset_calls = 0
+        self.connected = False
+
+    def bind(self, device_id: int):
+        """Return one device view sharing this endpoint."""
+        return FakeDeviceTransport(self, device_id, self.transports[device_id])
+
+    def connect(self) -> None:
+        """Connect the endpoint once."""
+        if not self.connected:
+            self.connect_calls += 1
+            self.connected = True
+
+    def close(self) -> None:
+        """Close the endpoint once."""
+        if self.connected:
+            self.close_calls += 1
+            self.connected = False
+            if any(transport.close_error for transport in self.transports.values()):
+                raise ModbusTransportError("close failed")
+
+    def reset(self) -> None:
+        """Record and close one failed endpoint session."""
+        self.reset_calls += 1
+        self.close()
+
+
+class FakeDeviceTransport:
+    """Bound fake view that resets its shared endpoint after I/O failure."""
+
+    def __init__(
+        self, endpoint: FakeEndpoint, device_id: int, transport: FakeTransport
+    ) -> None:
+        self.endpoint = endpoint
+        self.device_id = device_id
+        self.transport = transport
+
+    def read_holding_registers(self, address: int, count: int) -> tuple[int, ...]:
+        """Read one device store and reset the session on transport failure."""
+        if not self.endpoint.connected:
+            self.endpoint.connect()
+        if self.transport.connection_error:
+            self.endpoint.reset()
+            raise ModbusConnectionError("connection unavailable")
+        try:
+            return self.transport.read_holding_registers(address, count)
+        except ModbusTransportError:
+            self.endpoint.reset()
+            raise
+
+
 def model_chain(*models: tuple[int, int]) -> tuple[dict[int, int], dict[int, int]]:
     """Build a synthetic chain and return model IDs mapped to payload bases."""
     base = SUNSPEC_BASE_TRANSPORT_ADDRESS

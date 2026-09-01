@@ -655,6 +655,29 @@
       "model_203_wphc": {
         "name": "AC-Leistung Phase L3"
       }
+    },
+    "number": {
+      "model_123_conn_wintms": {"name": "Zeitfenster für die Verbindung"},
+      "model_123_conn_rvrttms": {"name": "Rückfallzeit für die Verbindung"},
+      "model_123_wmaxlimpct": {"name": "Maximale Ausgangsleistung"},
+      "model_123_wmaxlimpct_wintms": {"name": "Zeitfenster der Leistungsbegrenzung"},
+      "model_123_wmaxlimpct_rvrttms": {"name": "Rückfallzeit der Leistungsbegrenzung"},
+      "model_123_outpfset": {"name": "Leistungsfaktor-Sollwert"},
+      "model_123_outpfset_wintms": {"name": "Zeitfenster des Leistungsfaktors"},
+      "model_123_outpfset_rvrttms": {"name": "Rückfallzeit des Leistungsfaktors"},
+      "model_123_outpfset_rmptms": {"name": "Rampenzeit des Leistungsfaktors"},
+      "model_123_varmaxpct": {"name": "Blindleistungsgrenze"},
+      "model_123_varpct_wintms": {"name": "Zeitfenster der Blindleistung"},
+      "model_123_varpct_rvrttms": {"name": "Rückfallzeit der Blindleistung"},
+      "model_123_varpct_rmptms": {"name": "Rampenzeit der Blindleistung"},
+      "model_124_vachamax": {"name": "Maximale Lade-Scheinleistung"},
+      "model_124_minrsvpct": {"name": "Mindestspeicherreserve"},
+      "model_124_outwrte": {"name": "Maximale Entladerate"},
+      "model_124_inwrte": {"name": "Maximale Laderate"},
+      "model_124_inoutwrte_rvrttms": {"name": "Rückfallzeit für Laden und Entladen"}
+    },
+    "select": {
+      "model_124_chagriset": {"name": "Netzladung"}
     }
   }
 }

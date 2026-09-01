@@ -49,8 +49,9 @@ important for battery and storage control.
 
 The independent core provides symmetrical register decoding and encoding.
 Encoding validates write access, semantic ranges, scale factors, exact integer
-representation, and invalid SunSpec sentinels. Home Assistant has an internal
-write runtime, but no writable entities or services are exposed yet.
+representation, and invalid SunSpec sentinels. Home Assistant exposes approved
+writable numeric and enum registers as number and select entities; it provides
+no arbitrary register-write service.
 
 ### Installation write policy
 
@@ -68,6 +69,13 @@ parsed and validated only during config-entry setup. Editing it requires an
 integration reload or Home Assistant restart. An invalid existing policy fails
 closed: read-only polling continues, but that config entry receives no approved
 writes and the packaged default is not substituted.
+
+Each physical register has one platform selected by the catalog: read-only
+values are sensors, writable numeric controls are numbers, and writable enum
+controls are selects. A writable catalog entry is exposed only when the
+config-entry policy snapshot explicitly approves it. Number entities also
+require finite effective bounds from the intersection of hard register limits
+and installation policy. Policy can narrow but never broaden hard limits.
 
 ### Developer register write testing
 

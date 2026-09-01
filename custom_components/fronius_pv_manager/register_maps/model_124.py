@@ -340,6 +340,7 @@ MODEL_124 = attach_entities(
                     "measurement" if name == "InOutWRte_RvrtTms" else None
                 ),
                 presentation_unit=(
+                    "%" if name == "MinRsvPct" else
                     "s" if name == "InOutWRte_RvrtTms" else None
                 ),
             )

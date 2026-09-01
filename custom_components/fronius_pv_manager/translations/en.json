@@ -655,6 +655,29 @@
       "model_203_wphc": {
         "name": "Phase C AC power"
       }
+    },
+    "number": {
+      "model_123_conn_wintms": {"name": "Connection time window"},
+      "model_123_conn_rvrttms": {"name": "Connection reversion timeout"},
+      "model_123_wmaxlimpct": {"name": "Maximum power output setting"},
+      "model_123_wmaxlimpct_wintms": {"name": "Power-limit time window"},
+      "model_123_wmaxlimpct_rvrttms": {"name": "Power-limit reversion timeout"},
+      "model_123_outpfset": {"name": "Power factor setting"},
+      "model_123_outpfset_wintms": {"name": "Power-factor time window"},
+      "model_123_outpfset_rvrttms": {"name": "Power-factor reversion timeout"},
+      "model_123_outpfset_rmptms": {"name": "Power-factor ramp time"},
+      "model_123_varmaxpct": {"name": "Reactive power limit"},
+      "model_123_varpct_wintms": {"name": "Reactive-power time window"},
+      "model_123_varpct_rvrttms": {"name": "Reactive-power reversion timeout"},
+      "model_123_varpct_rmptms": {"name": "Reactive-power ramp time"},
+      "model_124_vachamax": {"name": "Maximum charging apparent power"},
+      "model_124_minrsvpct": {"name": "Minimum storage reserve"},
+      "model_124_outwrte": {"name": "Maximum discharge rate"},
+      "model_124_inwrte": {"name": "Maximum charge rate"},
+      "model_124_inoutwrte_rvrttms": {"name": "Charge/discharge reversion timeout"}
+    },
+    "select": {
+      "model_124_chagriset": {"name": "Grid charging"}
     }
   }
 }

@@ -7,6 +7,9 @@ from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.const import Platform
 
 import custom_components.fronius_pv_manager as integration_module
+import custom_components.fronius_pv_manager.number as number_module
+import custom_components.fronius_pv_manager.select as select_module
+import custom_components.fronius_pv_manager.sensor as sensor_module
 from custom_components.fronius_pv_manager import (
     async_setup_entry,
     async_unload_entry,
@@ -51,7 +54,9 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
         999,
     ]
     assert transport.connect_calls == 1
-    assert hass.config_entries.forwarded == [(entry, (Platform.SENSOR,))]
+    assert hass.config_entries.forwarded == [
+        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
+    ]
     assert tuple(entry.runtime_data.write_policies) == ((124, "MinRsvPct"),)
 
 
@@ -64,7 +69,7 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     policy_path.parent.mkdir()
     invalid_content = "version: 1\nmodels:\n  124:\n    ChaState: {}\n"
     policy_path.write_text(invalid_content, encoding="utf-8")
-    registers, _ = model_chain((1, 65))
+    registers, _ = model_chain((124, 24))
     transport = FakeTransport(registers)
     monkeypatch.setattr(
         integration_module,
@@ -82,6 +87,21 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     assert policy_path.read_text(encoding="utf-8") == invalid_content
     assert "writes are disabled" in caplog.text
     assert str(policy_path) in caplog.text
+    numbers = []
+    selects = []
+    sensors = []
+    await number_module.async_setup_entry(
+        hass, entry, lambda items: numbers.extend(items)
+    )
+    await select_module.async_setup_entry(
+        hass, entry, lambda items: selects.extend(items)
+    )
+    await sensor_module.async_setup_entry(
+        hass, entry, lambda items: sensors.extend(items)
+    )
+    assert numbers == []
+    assert selects == []
+    assert sensors
 
 
 @pytest.mark.asyncio
@@ -126,7 +146,9 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     assert coordinator._shutdown_requested
     assert transport.close_calls == 1
     assert not hasattr(entry, "runtime_data")
-    assert hass.config_entries.unloaded == [(entry, (Platform.SENSOR,))]
+    assert hass.config_entries.unloaded == [
+        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
+    ]
 
 
 @pytest.mark.asyncio

@@ -7,9 +7,6 @@ releases will use semantic versioning.
 
 ### Added
 
-- Language-independent semantic object IDs for newly registered entities.
-  Entity IDs from earlier beta releases are not migrated.
-
 - Initial Fronius PV Manager project structure.
 - MIT license and Home Assistant/HACS metadata.
 - English and German localization foundation.
@@ -18,6 +15,36 @@ releases will use semantic versioning.
 - Validation for register definitions, model layouts, and discovered models.
 - Unit tests for the core model.
 - CI-ready validation with Ruff and pytest.
+
+## [v0.2.0-beta.7] - 2026-09-01
+
+### Changed
+
+- Fresh Home Assistant entities now use deterministic, language-independent
+  semantic object IDs. Normal sensor object IDs no longer derive from translated
+  display names, while Home Assistant continues to own the device-name prefix.
+- Fresh sensor IDs therefore include examples such as
+  `sensor.speicher_discharging_current`,
+  `sensor.speicher_state_of_charge`, and
+  `sensor.smart_meter_ts_65a_3_exported_energy`.
+- Model 160 uses runtime-classified semantic IDs such as `mppt_1_dc_power`,
+  `mppt_2_dc_power`, `charging_power`, and `discharging_power`.
+- Low-level writable controls retain the explicit `_reg_` convention, including
+  `storage_reg_minimum_storage_reserve` and `storage_reg_grid_charging`.
+
+### Compatibility
+
+- Unique-ID construction is unchanged.
+- Existing entity IDs from earlier beta releases are not migrated. A clean
+  installation receives the new IDs automatically.
+- No register semantics, Modbus transport, codec, write policy, or write-runtime
+  behavior changed.
+
+### Validation
+
+- Ruff passed.
+- 555 tests passed.
+- `git diff --check` passed.
 
 ## [v0.2.0-beta.6] - 2026-09-01
 

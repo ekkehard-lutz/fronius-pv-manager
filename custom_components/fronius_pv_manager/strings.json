@@ -294,7 +294,7 @@
         "name": "Electrical connection point status"
       },
       "model_122_pvconn": {
-        "name": "PV inverter present and available status"
+        "name": "PV inverter status"
       },
       "model_122_ris": {
         "name": "Isolation resistance"
@@ -306,7 +306,7 @@
         "name": "Currently active inverter controls"
       },
       "model_122_storconn": {
-        "name": "Storage inverter present and available status"
+        "name": "Storage inverter status"
       },
       "model_122_stsetlimmsk": {
         "name": "Setpoint-limit status"
@@ -356,13 +356,13 @@
         "name": "Available storage above reserve"
       },
       "model_124_wchagra": {
-        "name": "Maximum charging rate"
+        "name": "Maximum charging ramp rate"
       },
       "model_124_wchamax": {
         "name": "Maximum storage charging power"
       },
       "model_124_wdischagra": {
-        "name": "Maximum discharge rate"
+        "name": "Maximum discharging ramp rate"
       },
       "model_160_evt": {
         "name": "Event flags"

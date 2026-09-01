@@ -332,6 +332,15 @@ MODEL_124 = attach_entities(
                 category=EntityCategoryHint.CONFIG,
                 enabled=False,
                 role=_ROLE,
+                device_class=(
+                    "duration" if name == "InOutWRte_RvrtTms" else None
+                ),
+                state_class=(
+                    "measurement" if name == "InOutWRte_RvrtTms" else None
+                ),
+                presentation_unit=(
+                    "s" if name == "InOutWRte_RvrtTms" else None
+                ),
             )
             for name in (
                 "VAChaMax", "MinRsvPct", "OutWRte", "InWRte",

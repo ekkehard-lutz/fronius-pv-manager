@@ -294,7 +294,7 @@
         "name": "Status des Netzanschlusspunkts"
       },
       "model_122_pvconn": {
-        "name": "PV-Wechselrichter verfügbar"
+        "name": "PV-Wechselrichterstatus"
       },
       "model_122_ris": {
         "name": "Isolationswiderstand"
@@ -306,7 +306,7 @@
         "name": "Aktive Wechselrichterregelungen"
       },
       "model_122_storconn": {
-        "name": "Speicherwechselrichter verfügbar"
+        "name": "Speicherwechselrichterstatus"
       },
       "model_122_stsetlimmsk": {
         "name": "Status der Sollwertbegrenzung"
@@ -356,13 +356,13 @@
         "name": "Verfügbarer Speicher oberhalb der Reserve"
       },
       "model_124_wchagra": {
-        "name": "Maximale Laderate"
+        "name": "Maximale Laderampe"
       },
       "model_124_wchamax": {
         "name": "Maximale Speicher-Ladeleistung"
       },
       "model_124_wdischagra": {
-        "name": "Maximale Entladerate"
+        "name": "Maximale Entladerampe"
       },
       "model_160_evt": {
         "name": "Ereignisflags"

@@ -291,6 +291,9 @@ MODEL_123 = attach_entities(
                 category=EntityCategoryHint.CONFIG,
                 enabled=False,
                 role=PhysicalDeviceRole.INVERTER,
+                device_class="duration" if name.endswith("Tms") else None,
+                state_class="measurement" if name.endswith("Tms") else None,
+                presentation_unit="s" if name.endswith("Tms") else None,
             )
             for name in _NUMBER_CONTROLS
         },
@@ -313,6 +316,13 @@ MODEL_123 = attach_entities(
                 enabled=False,
                 role=PhysicalDeviceRole.INVERTER,
                 translate_enum_values=name == "VArPct_Mod",
+                device_class=(
+                    "duration" if name == "WMaxLimPct_RmpTms" else None
+                ),
+                state_class=(
+                    "measurement" if name == "WMaxLimPct_RmpTms" else None
+                ),
+                presentation_unit="s" if name == "WMaxLimPct_RmpTms" else None,
             )
             for name in (
                 "WMaxLimPct_RmpTms", "VArWMaxPct", "VArAvalPct", "VArPct_Mod"

@@ -30,6 +30,7 @@ from custom_components.fronius_pv_manager.register_maps import (
     MODEL_103,
     MODEL_120,
     MODEL_121,
+    MODEL_122,
     MODEL_123,
     MODEL_124,
     MODEL_160,
@@ -543,6 +544,130 @@ async def test_storage_state_of_charge_uses_battery_percentage_metadata() -> Non
 
 
 @pytest.mark.asyncio
+async def test_power_factor_units_use_home_assistant_presentation() -> None:
+    """Percentage and cosine power factors retain values with clean metadata."""
+    payload_103 = [0] * 50
+    payload_103[20] = 991
+    payload_103[21] = 0xFFFF
+    payload_120 = [0] * 26
+    payload_120[12] = 0xFFF9
+    payload_120[16] = 0xFFFF
+    _, entities, transport = await _entities_for(
+        _snapshot(MODEL_103, payload_103),
+        _snapshot(MODEL_120, payload_120),
+        _snapshot(MODEL_121),
+        _snapshot(MODEL_203),
+    )
+
+    percentage = next(
+        entity
+        for entity in entities
+        if entity._source.model_id == 103 and entity._source.register_name == "PF"
+    )
+    cosine = next(
+        entity
+        for entity in entities
+        if entity._source.model_id == 120
+        and entity._source.register_name == "PFRtgQ1"
+    )
+    assert percentage.native_value == 99.1
+    assert percentage.native_unit_of_measurement == "%"
+    assert percentage.device_class is SensorDeviceClass.POWER_FACTOR
+    assert cosine.native_value == -0.7
+    assert cosine.native_unit_of_measurement is None
+    assert cosine.device_class is SensorDeviceClass.POWER_FACTOR
+    audited = [
+        entity
+        for entity in entities
+        if entity._source.register_name
+        in {"PF", "PFphA", "PFphB", "PFphC", "PFRtgQ1", "PFRtgQ2",
+            "PFRtgQ3", "PFRtgQ4", "PFMinQ1", "PFMinQ2", "PFMinQ3",
+            "PFMinQ4"}
+    ]
+    assert audited
+    assert all(
+        entity.device_class is SensorDeviceClass.POWER_FACTOR for entity in audited
+    )
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_status_resistance_and_epoch_counter_presentation() -> None:
+    """Model 122 retains raw values while cleaning status names and units."""
+    payload = [0] * 44
+    payload[0] = 7
+    payload[1] = 7
+    payload[39:41] = [0x3229, 0x9E6F]
+    payload[42] = 24623
+    payload[43] = 2
+    _, entities, transport = await _entities_for(_snapshot(MODEL_122, payload))
+    pv_status = _by_register(entities, "PVConn")[0]
+    storage_status = _by_register(entities, "StorConn")[0]
+    timestamp_counter = _by_register(entities, "Tms")[0]
+    resistance = _by_register(entities, "Ris")[0]
+
+    assert pv_status.native_value == "Connected, Available, Operating"
+    assert storage_status.native_value == "Connected, Available, Operating"
+    assert pv_status.device_class is None
+    assert pv_status.unique_id == "test-entry_device1_inverter_model_122_pvconn"
+    assert timestamp_counter.native_value == 841588335
+    assert timestamp_counter.native_unit_of_measurement == "s"
+    assert timestamp_counter.device_class is None
+    assert resistance.native_value == 2462300
+    assert resistance.native_unit_of_measurement == "Ω"
+    assert resistance.device_class is None
+    assert resistance.state_class is SensorStateClass.MEASUREMENT
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_storage_ramp_rate_preserves_reference_unit() -> None:
+    """Storage ramp rates retain their percentage-of-WChaMax semantics."""
+    payload = [0] * 24
+    payload[1] = 100
+    payload[2] = 100
+    _, entities, transport = await _entities_for(_snapshot(MODEL_124, payload))
+
+    for register_name in ("WChaGra", "WDisChaGra"):
+        rate = _by_register(entities, register_name)[0]
+        assert rate.native_value == 100
+        assert rate.native_unit_of_measurement == "% WChaMax/s"
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_model_160_epoch_counter_remains_numeric_seconds() -> None:
+    """Module epoch-related counters are not misrepresented as HA timestamps."""
+    payload = [0] * 88
+    payload[6] = 1
+    payload[8] = 1
+    payload[9:17] = _string_words("MPPT 1", 8)
+    payload[22:24] = [0x3229, 0x9E6F]
+    _, entities, transport = await _entities_for(_snapshot(MODEL_160, payload))
+    timestamp_counter = _by_register(entities, "Tms")[0]
+
+    assert timestamp_counter.native_value == 841588335
+    assert timestamp_counter.native_unit_of_measurement == "s"
+    assert timestamp_counter.device_class is None
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_supported_seconds_duration_uses_duration_metadata() -> None:
+    """A genuine ramp-time sensor uses seconds and the HA duration class."""
+    payload = [0] * 24
+    payload[6] = 12
+    _, entities, transport = await _entities_for(_snapshot(MODEL_123, payload))
+    ramp_time = _by_register(entities, "WMaxLimPct_RmpTms")[0]
+
+    assert ramp_time.native_value == 12
+    assert ramp_time.native_unit_of_measurement == "s"
+    assert ramp_time.device_class is SensorDeviceClass.DURATION
+    assert ramp_time.state_class is SensorStateClass.MEASUREMENT
+    assert transport.read_calls == []
+
+
+@pytest.mark.asyncio
 async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> None:
     """Recognized repeated modules create sensors on their classified devices."""
     payload = [0] * 88
@@ -737,6 +862,16 @@ def test_storage_names_and_inverter_state_translations() -> None:
         "holding": "Holding",
         "testing": "Testbetrieb",
     }
+    assert english["model_122_pvconn"]["name"] == "PV inverter status"
+    assert english["model_122_storconn"]["name"] == "Storage inverter status"
+    assert german["model_122_pvconn"]["name"] == "PV-Wechselrichterstatus"
+    assert german["model_122_storconn"]["name"] == "Speicherwechselrichterstatus"
+    assert english["model_124_wchagra"]["name"] == "Maximum charging ramp rate"
+    assert english["model_124_wdischagra"]["name"] == (
+        "Maximum discharging ramp rate"
+    )
+    assert german["model_124_wchagra"]["name"] == "Maximale Laderampe"
+    assert german["model_124_wdischagra"]["name"] == "Maximale Entladerampe"
     assert german_document["config"]["step"]["user"]["data"]["device_ids"] == (
         "Modbus-Geräte-IDs"
     )

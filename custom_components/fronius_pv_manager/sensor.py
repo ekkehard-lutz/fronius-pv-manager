@@ -17,7 +17,9 @@ from homeassistant.const import (
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
+    UnitOfRatio,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -59,6 +61,15 @@ _UNIT_METADATA = {
         SensorDeviceClass.TEMPERATURE,
         SensorStateClass.MEASUREMENT,
     ),
+    "Pct": (
+        UnitOfRatio.PERCENTAGE,
+        SensorDeviceClass.POWER_FACTOR,
+        SensorStateClass.MEASUREMENT,
+    ),
+    "cos()": (None, SensorDeviceClass.POWER_FACTOR, SensorStateClass.MEASUREMENT),
+    "ohms": ("Ω", None, SensorStateClass.MEASUREMENT),
+    "Secs": (UnitOfTime.SECONDS, None, None),
+    "% WChaMax/sec": ("% WChaMax/s", None, None),
 }
 
 

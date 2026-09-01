@@ -49,9 +49,25 @@ important for battery and storage control.
 
 The independent core provides symmetrical register decoding and encoding.
 Encoding validates write access, semantic ranges, scale factors, exact integer
-representation, and invalid SunSpec sentinels. Actual Modbus writes remain
-restricted to the explicit developer test workflow below; Home Assistant write
-behavior remains intentionally unimplemented.
+representation, and invalid SunSpec sentinels. Home Assistant has an internal
+write runtime, but no writable entities or services are exposed yet.
+
+### Installation write policy
+
+`RegisterDefinition` remains the hard manufacturer and protocol constraint.
+Home Assistant writes additionally require an explicit installation policy at
+`/config/fronius_pv_manager/write_policy.yaml`. A register absent from that
+file is not writable through the Home Assistant runtime. Policy ranges, enum
+choices, and bit masks may narrow documented constraints but can never broaden
+them or bypass the encoder.
+
+On first config-entry setup, the integration copies its conservative packaged
+default to the installation path. Existing installation policy is never
+overwritten, so it survives HACS updates. The complete YAML file is safely
+parsed and validated only during config-entry setup. Editing it requires an
+integration reload or Home Assistant restart. An invalid existing policy fails
+closed: read-only polling continues, but that config entry receives no approved
+writes and the packaged default is not substituted.
 
 ### Developer register write testing
 

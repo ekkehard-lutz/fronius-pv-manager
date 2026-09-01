@@ -1,5 +1,6 @@
 """Home Assistant runtime coordinator for SunSpec discovery and polling."""
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from .transport import (
     ModbusTransportError,
     read_holding_registers_chunked,
 )
+from .write_policy import WritePolicy
+from .write_runtime import FroniusPVWriteRuntime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +75,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         hass: HomeAssistant,
         entry: ConfigEntry,
         transports: Mapping[int, ModbusTcpTransport],
+        write_policies: Mapping[tuple[int, str], WritePolicy] | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -86,6 +90,14 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         self.discovered_models_by_device: dict[
             int, tuple[DiscoveredModel, ...]
         ] = {}
+        self.write_policies = MappingProxyType(dict(write_policies or {}))
+        self._io_lock = asyncio.Lock()
+        self.write_runtime = FroniusPVWriteRuntime(self)
+
+    @property
+    def io_lock(self) -> asyncio.Lock:
+        """Return the config-entry lock shared by polling and writes."""
+        return self._io_lock
 
     @property
     def discovered_models(self) -> tuple[DiscoveredModel, ...]:
@@ -98,9 +110,10 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
 
     async def async_discover(self) -> None:
         """Connect and discover the SunSpec topology once in the executor."""
-        self.discovered_models_by_device = await self.hass.async_add_executor_job(
-            self._connect_and_discover
-        )
+        async with self._io_lock:
+            self.discovered_models_by_device = (
+                await self.hass.async_add_executor_job(self._connect_and_discover)
+            )
 
     def _connect_and_discover(self) -> dict[int, tuple[DiscoveredModel, ...]]:
         """Connect and discover every configured device synchronously."""
@@ -113,7 +126,8 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     async def _async_update_data(self) -> FroniusPVCoordinatorData:
         """Poll and decode all supported models without blocking the event loop."""
         try:
-            return await self.hass.async_add_executor_job(self._poll_devices)
+            async with self._io_lock:
+                return await self.hass.async_add_executor_job(self._poll_devices)
         except ModbusTransportError as err:
             raise UpdateFailed("failed to read SunSpec device data") from err
 
@@ -164,7 +178,8 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
 
     async def async_close(self) -> None:
         """Close every owned synchronous transport in the executor."""
-        await self.hass.async_add_executor_job(self._close_transports)
+        async with self._io_lock:
+            await self.hass.async_add_executor_job(self._close_transports)
 
     def _close_transports(self) -> None:
         """Attempt every close and raise the first transport error afterward."""

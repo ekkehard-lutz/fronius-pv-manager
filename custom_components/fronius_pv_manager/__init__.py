@@ -1,6 +1,8 @@
 """Home Assistant config-entry lifecycle for Fronius PV Manager."""
 
 import logging
+from pathlib import Path
+from types import MappingProxyType
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import Platform
@@ -17,6 +19,7 @@ from .const import (
 from .coordinator import FroniusPVCoordinator
 from .sunspec import SunSpecDiscoveryError
 from .transport import ModbusTcpTransport, ModbusTransportError
+from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = (Platform.SENSOR,)
@@ -41,6 +44,19 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: FroniusPVConfigEntry
 ) -> bool:
     """Connect, discover once, and perform the first coordinator refresh."""
+    try:
+        policy_path, write_policies = await hass.async_add_executor_job(
+            load_or_create_write_policy,
+            Path(hass.config.path()),
+        )
+    except (OSError, WritePolicyLoadError) as err:
+        policy_path = Path(hass.config.path("fronius_pv_manager", "write_policy.yaml"))
+        write_policies = MappingProxyType({})
+        _LOGGER.error(
+            "Write policy %s is invalid; writes are disabled: %s",
+            policy_path,
+            err,
+        )
     transports = {
         device_id: ModbusTcpTransport(
             entry.data[CONF_HOST],
@@ -49,7 +65,7 @@ async def async_setup_entry(
         )
         for device_id in _configured_device_ids(entry)
     }
-    coordinator = FroniusPVCoordinator(hass, entry, transports)
+    coordinator = FroniusPVCoordinator(hass, entry, transports, write_policies)
     try:
         await coordinator.async_discover()
         await coordinator.async_config_entry_first_refresh()

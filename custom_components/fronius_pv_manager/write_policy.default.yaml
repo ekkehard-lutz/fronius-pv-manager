@@ -1,0 +1,7 @@
+version: 1
+
+models:
+  124:
+    MinRsvPct:
+      minimum: 0
+      maximum: 100

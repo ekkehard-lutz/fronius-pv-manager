@@ -1,5 +1,7 @@
 """Tests for Fronius PV Manager config-entry lifecycle."""
 
+import logging
+
 import pytest
 from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.const import Platform
@@ -50,6 +52,36 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     ]
     assert transport.connect_calls == 1
     assert hass.config_entries.forwarded == [(entry, (Platform.SENSOR,))]
+    assert tuple(entry.runtime_data.write_policies) == ((124, "MinRsvPct"),)
+
+
+@pytest.mark.asyncio
+async def test_invalid_existing_policy_disables_writes_but_setup_continues(
+    monkeypatch, tmp_path, caplog
+) -> None:
+    """Invalid operator YAML fails closed without disabling read-only polling."""
+    policy_path = tmp_path / "fronius_pv_manager" / "write_policy.yaml"
+    policy_path.parent.mkdir()
+    invalid_content = "version: 1\nmodels:\n  124:\n    ChaState: {}\n"
+    policy_path.write_text(invalid_content, encoding="utf-8")
+    registers, _ = model_chain((1, 65))
+    transport = FakeTransport(registers)
+    monkeypatch.setattr(
+        integration_module,
+        "ModbusTcpTransport",
+        lambda *args, **kwargs: transport,
+    )
+    hass = FakeHass(config_dir=tmp_path)
+    entry = FakeEntry(entry_data())
+
+    with caplog.at_level(logging.ERROR):
+        assert await async_setup_entry(hass, entry)
+
+    assert not entry.runtime_data.write_policies
+    assert entry.runtime_data.last_update_success
+    assert policy_path.read_text(encoding="utf-8") == invalid_content
+    assert "writes are disabled" in caplog.text
+    assert str(policy_path) in caplog.text
 
 
 @pytest.mark.asyncio

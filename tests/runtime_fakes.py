@@ -1,6 +1,8 @@
 """Shared lightweight Home Assistant runtime test doubles."""
 
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntryState
 
@@ -62,15 +64,27 @@ class FakeFlowManager:
 class FakeHass:
     """Provide executor delegation required by the coordinator."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, config_dir: Path | None = None) -> None:
         self.executor_jobs: list[Callable] = []
         self.is_stopping = False
         self.config_entries = FakeConfigEntries()
+        self.config = FakeConfig(config_dir or Path(tempfile.mkdtemp()))
 
     async def async_add_executor_job(self, target, *args):
         """Record and execute one submitted synchronous callable."""
         self.executor_jobs.append(target)
         return target(*args)
+
+
+class FakeConfig:
+    """Resolve Home Assistant config-relative paths for runtime tests."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def path(self, *parts: str) -> str:
+        """Return one path below the synthetic config directory."""
+        return str(self.root.joinpath(*parts))
 
 
 class FakeEntry:

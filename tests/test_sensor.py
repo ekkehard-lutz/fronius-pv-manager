@@ -21,6 +21,7 @@ from custom_components.fronius_pv_manager.coordinator import (
 from custom_components.fronius_pv_manager.model_decoder import decode_model
 from custom_components.fronius_pv_manager.models import (
     DiscoveredModel,
+    EntityCategoryHint,
     EntityPlatform,
     PhysicalDeviceRole,
     SunSpecModelDefinition,
@@ -421,6 +422,26 @@ async def test_entity_defaults_categories_and_sensor_metadata() -> None:
     assert temperature.device_class is SensorDeviceClass.TEMPERATURE
     assert temperature.entity_category is EntityCategory.DIAGNOSTIC
     assert not temperature.entity_description.entity_registry_enabled_default
+
+
+@pytest.mark.asyncio
+async def test_config_hint_is_not_a_home_assistant_sensor_category() -> None:
+    """Neutral configuration semantics do not create invalid config sensors."""
+    _, entities, transport = await _entities_for(_snapshot(MODEL_121))
+    maximum_power = _by_register(entities, "WMax")[0]
+
+    assert maximum_power._source.entity.category is EntityCategoryHint.CONFIG
+    assert maximum_power.entity_description.key == "model_121_wmax"
+    assert maximum_power.entity_category is None
+    assert maximum_power.entity_category is not EntityCategory.CONFIG
+    assert maximum_power.unique_id == (
+        "test-entry_device1_inverter_model_121_wmax"
+    )
+    assert maximum_power.entity_description.translation_key == "model_121_wmax"
+    assert maximum_power.device_info["identifiers"] == {
+        ("fronius_pv_manager", "test-entry:device1:inverter")
+    }
+    assert transport.read_calls == []
 
 
 @pytest.mark.asyncio

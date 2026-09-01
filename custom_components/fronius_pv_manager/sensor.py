@@ -307,10 +307,11 @@ def _entity_description(
             if register.enum is not None
             else []
         )
-    category = {
-        EntityCategoryHint.DIAGNOSTIC: EntityCategory.DIAGNOSTIC,
-        EntityCategoryHint.CONFIG: EntityCategory.CONFIG,
-    }.get(entity.category)
+    category = (
+        EntityCategory.DIAGNOSTIC
+        if entity.category is EntityCategoryHint.DIAGNOSTIC
+        else None
+    )
     return SensorEntityDescription(
         key=entity.key,
         translation_key=translation_key,

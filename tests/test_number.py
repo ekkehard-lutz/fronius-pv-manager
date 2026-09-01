@@ -29,11 +29,12 @@ from tests.control_entity_fakes import (
 from tests.runtime_fakes import FakeEntry
 
 
-async def number_entities(policy: WritePolicy):
-    """Set up number entities for one synthetic runtime policy."""
-    coordinator = ControlCoordinator(
-        {(policy.model_id, policy.register_name): policy}
+async def number_entities(policy: WritePolicy | None):
+    """Set up number entities for one optional synthetic runtime policy."""
+    policies = (
+        {} if policy is None else {(policy.model_id, policy.register_name): policy}
     )
+    coordinator = ControlCoordinator(policies)
     entry = FakeEntry({})
     entry.runtime_data = coordinator
     entities = []
@@ -41,6 +42,11 @@ async def number_entities(policy: WritePolicy):
         coordinator.hass, entry, lambda items: entities.extend(items)
     )
     return coordinator, entities
+
+
+def by_register(entities, name: str):
+    """Return one control entity by semantic register name."""
+    return next(entity for entity in entities if entity._source.register_name == name)
 
 
 @pytest.mark.asyncio
@@ -56,8 +62,7 @@ async def test_minimum_reserve_number_uses_effective_policy_range(
         WritePolicy(124, "MinRsvPct", minimum, maximum)
     )
 
-    assert len(entities) == 1
-    entity = entities[0]
+    entity = by_register(entities, "MinRsvPct")
     assert entity._source.role is PhysicalDeviceRole.STORAGE
     assert entity.native_value == 7
     assert entity.native_min_value == minimum
@@ -67,6 +72,7 @@ async def test_minimum_reserve_number_uses_effective_policy_range(
     assert entity.entity_category is EntityCategory.CONFIG
     assert not entity.entity_description.entity_registry_enabled_default
     assert entity.unique_id == "test-entry_device1_storage_model_124_minrsvpct"
+    assert entity.suggested_object_id == "storage_reg_minimum_storage_reserve"
     assert entity.device_info["identifiers"] == {
         ("fronius_pv_manager", "test-entry:device1:storage")
     }
@@ -74,18 +80,44 @@ async def test_minimum_reserve_number_uses_effective_policy_range(
 
 
 @pytest.mark.asyncio
-async def test_unapproved_numbers_are_not_exposed() -> None:
-    """Catalog membership alone never exposes an unrestricted control."""
-    coordinator = ControlCoordinator({})
-    entry = FakeEntry({})
-    entry.runtime_data = coordinator
-    entities = []
+async def test_minimum_reserve_exists_without_policy_with_hard_bounds() -> None:
+    """Catalog exposure and hard presentation bounds do not require policy."""
+    coordinator, entities = await number_entities(None)
+    entity = by_register(entities, "MinRsvPct")
 
-    await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+    assert entity.native_value == 7
+    assert entity.native_min_value == 0
+    assert entity.native_max_value == 100
+    assert not entity.entity_description.entity_registry_enabled_default
+    with pytest.raises(ServiceValidationError, match="not enabled"):
+        await entity.async_set_native_value(10)
+    assert coordinator.control_transport.write_calls == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_policy_keeps_number_readable_with_hard_bounds() -> None:
+    """A disabled narrowed policy does not narrow presentation or permit writes."""
+    coordinator, entities = await number_entities(
+        WritePolicy(124, "MinRsvPct", 5, 20, enabled=False)
     )
+    entity = by_register(entities, "MinRsvPct")
 
-    assert entities == []
+    assert entity.native_value == 7
+    assert entity.native_min_value == 0
+    assert entity.native_max_value == 100
+    with pytest.raises(ServiceValidationError, match="not enabled"):
+        await entity.async_set_native_value(10)
+    assert coordinator.control_transport.write_calls == []
+
+
+@pytest.mark.asyncio
+async def test_enabled_policy_without_narrowing_uses_hard_bounds() -> None:
+    """Omitted installation limits inherit the authoritative register range."""
+    _, entities = await number_entities(WritePolicy(124, "MinRsvPct"))
+    entity = by_register(entities, "MinRsvPct")
+
+    assert entity.native_min_value == 0
+    assert entity.native_max_value == 100
 
 
 @pytest.mark.asyncio
@@ -102,7 +134,7 @@ async def test_number_without_finite_effective_bounds_is_not_exposed() -> None:
         coordinator.hass, entry, lambda items: entities.extend(items)
     )
 
-    assert entities == []
+    assert all(entity._source.register_name != "VAChaMax" for entity in entities)
 
 
 @pytest.mark.asyncio
@@ -114,7 +146,7 @@ async def test_out_of_range_number_write_is_rejected_before_modbus() -> None:
 
     for value in (21, float("nan")):
         with pytest.raises(ServiceValidationError):
-            await entities[0].async_set_native_value(value)
+            await by_register(entities, "MinRsvPct").async_set_native_value(value)
 
     assert coordinator.control_transport.write_calls == []
     assert coordinator.refresh_requests == 0
@@ -126,7 +158,7 @@ async def test_successful_number_write_uses_verified_runtime_and_refresh() -> No
     coordinator, entities = await number_entities(
         WritePolicy(124, "MinRsvPct", 0, 100)
     )
-    entity = entities[0]
+    entity = by_register(entities, "MinRsvPct")
 
     await entity.async_set_native_value(10)
 
@@ -152,11 +184,11 @@ async def test_failed_number_verification_keeps_confirmed_state() -> None:
     )
 
     with pytest.raises(WriteVerificationMismatchError):
-        await entities[0].async_set_native_value(10)
+        await by_register(entities, "MinRsvPct").async_set_native_value(10)
 
     assert len(coordinator.control_transport.write_calls) == 1
     assert coordinator.refresh_requests == 0
-    assert entities[0].native_value == 7
+    assert by_register(entities, "MinRsvPct").native_value == 7
 
 
 @pytest.mark.asyncio
@@ -172,7 +204,7 @@ async def test_writable_number_has_no_duplicate_sensor() -> None:
         coordinator.hass, entry, lambda items: sensors.extend(items)
     )
 
-    assert len(numbers) == 1
+    assert by_register(numbers, "MinRsvPct")
     assert all(sensor._source.register_name != "MinRsvPct" for sensor in sensors)
 
 
@@ -192,3 +224,30 @@ def test_control_translation_keys_cover_catalog_platforms() -> None:
             and register.entity.platform is platform
         }
         assert all(set(document[platform.value]) == expected for document in documents)
+
+
+def test_low_level_control_names_have_localized_register_prefix() -> None:
+    """Control display names are distinct from future high-level entities."""
+    root = Path(__file__).parents[1] / "custom_components" / "fronius_pv_manager"
+    english = json.loads(
+        (root / "translations/en.json").read_text(encoding="utf-8")
+    )["entity"]
+    german = json.loads(
+        (root / "translations/de.json").read_text(encoding="utf-8")
+    )["entity"]
+
+    for platform in ("number", "select"):
+        assert all(
+            item["name"].startswith("Register ")
+            for item in english[platform].values()
+        )
+        assert all(
+            item["name"].startswith("Register ")
+            for item in german[platform].values()
+        )
+    assert english["number"]["model_124_minrsvpct"]["name"] == (
+        "Register minimum storage reserve"
+    )
+    assert german["number"]["model_124_minrsvpct"]["name"] == (
+        "Register Mindestspeicherreserve"
+    )

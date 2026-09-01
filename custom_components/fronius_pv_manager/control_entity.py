@@ -12,6 +12,11 @@ from .models import (
 from .sensor import DeviceMetadata, _device_metadata
 from .write_policy import WritePolicy
 
+_HUMAN_READABLE_OBJECT_IDS = {
+    (124, "MinRsvPct"): "minimum_storage_reserve",
+    (124, "ChaGriSet"): "grid_charging",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class ControlEntitySource:
@@ -25,7 +30,7 @@ class ControlEntitySource:
     entity: EntityDefinition
     role: PhysicalDeviceRole
     translation_key: str
-    policy: WritePolicy
+    policy: WritePolicy | None
     device_metadata: DeviceMetadata | None = None
     block_name: None = None
     instance_index: None = None
@@ -34,7 +39,7 @@ class ControlEntitySource:
 def control_entity_sources(
     coordinator: FroniusPVCoordinator, platform: EntityPlatform
 ) -> tuple[ControlEntitySource, ...]:
-    """Build fixed sources approved by both catalog and runtime policy."""
+    """Build fixed sources from discovered catalog metadata."""
     sources = []
     for device in coordinator.data.devices:
         metadata = _device_metadata(device.decoded_models)
@@ -51,7 +56,6 @@ def control_entity_sources(
                     or entity.platform is not platform
                     or entity.device_role is None
                     or entity.translation_key is None
-                    or policy is None
                 ):
                     continue
                 sources.append(
@@ -94,3 +98,13 @@ def current_control_value(
         return None
     value = matching[source.model_occurrence].decoded.fixed.get(source.register_name)
     return None if value is None else value.value
+
+
+def suggested_control_object_id(source: ControlEntitySource) -> str:
+    """Return one stable language-independent low-level object ID."""
+    prefix = f"model_{source.model_id}_"
+    fallback = source.entity.key.removeprefix(prefix)
+    name = _HUMAN_READABLE_OBJECT_IDS.get(
+        (source.model_id, source.register_name), fallback
+    )
+    return f"{source.role.value}_reg_{name}"

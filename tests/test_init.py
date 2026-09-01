@@ -104,8 +104,11 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     await sensor_module.async_setup_entry(
         hass, entry, lambda items: sensors.extend(items)
     )
-    assert numbers == []
-    assert selects == []
+    assert any(
+        entity._source.register_name == "MinRsvPct" for entity in numbers
+    )
+    assert len(selects) == 1
+    assert selects[0]._source.register_name == "ChaGriSet"
     assert sensors
 
 

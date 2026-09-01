@@ -49,9 +49,9 @@ important for battery and storage control.
 
 The independent core provides symmetrical register decoding and encoding.
 Encoding validates write access, semantic ranges, scale factors, exact integer
-representation, and invalid SunSpec sentinels. Home Assistant exposes approved
-writable numeric and enum registers as number and select entities; it provides
-no arbitrary register-write service.
+representation, and invalid SunSpec sentinels. The entity catalog exposes
+reviewed writable numeric and enum registers as low-level number and select
+entities; Home Assistant provides no arbitrary register-write service.
 
 ### Installation write policy
 
@@ -62,6 +62,13 @@ file is not writable through the Home Assistant runtime. Policy ranges, enum
 choices, and bit masks may narrow documented constraints but can never broaden
 them or bypass the encoder.
 
+Catalog exposure and write permission are independent. Low-level controls are
+disabled by default in the Home Assistant Entity Registry. Enabling one there
+only makes it visible; it does not grant Modbus write permission. A missing
+policy entry leaves the entity readable but write-protected. An entry may set
+`enabled: false` to temporarily deny writes while retaining and validating its
+configured constraints. Omitting `enabled` is equivalent to `enabled: true`.
+
 The shipped default policy approves only Model 124 `MinRsvPct` from 0 through
 100 percent and `ChaGriSet` for its documented PV-disabled and GRID-enabled
 choices. All other writable registers remain unapproved.
@@ -71,15 +78,16 @@ default to the installation path. Existing installation policy is never
 overwritten, so it survives HACS updates. The complete YAML file is safely
 parsed and validated only during config-entry setup. Editing it requires an
 integration reload or Home Assistant restart. An invalid existing policy fails
-closed: read-only polling continues, but that config entry receives no approved
-writes and the packaged default is not substituted.
+closed: polling and readable catalog controls continue, but that config entry
+receives no approved writes and the packaged default is not substituted.
 
 Each physical register has one platform selected by the catalog: read-only
 values are sensors, writable numeric controls are numbers, and writable enum
-controls are selects. A writable catalog entry is exposed only when the
-config-entry policy snapshot explicitly approves it. Number entities also
-require finite effective bounds from the intersection of hard register limits
-and installation policy. Policy can narrow but never broaden hard limits.
+controls are selects. Policy permission affects writes, not entity existence.
+Number controls are exposed only when their register definition supplies finite
+authoritative bounds; no generic or guessed limits are used. An enabled policy
+may narrow those hard bounds or documented enum options. Policy edits take
+effect after an integration reload or Home Assistant restart.
 
 ### Developer register write testing
 
@@ -93,8 +101,7 @@ decoded value afterward.
 The preparation, encoding, single-write, read-back, and semantic verification
 workflow lives in reusable Home Assistant-independent core code. The CLI adds
 only dry-run policy, confirmation, localization, formatting, and exit status.
-Future Home Assistant number, select, and switch entities will use the same
-core path; those writable entities are not implemented yet.
+Home Assistant number and select entities use the same verified core path.
 
 Dry run is the default and never modifies the device:
 

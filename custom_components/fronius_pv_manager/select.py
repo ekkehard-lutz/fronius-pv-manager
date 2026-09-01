@@ -11,6 +11,7 @@ from .control_entity import (
     ControlEntitySource,
     control_entity_sources,
     current_control_value,
+    suggested_control_object_id,
 )
 from .coordinator import FroniusPVCoordinator
 from .models import EntityPlatform
@@ -23,13 +24,9 @@ async def async_setup_entry(
     entry: FroniusPVConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Create catalog selects that have explicit runtime write policy."""
+    """Create catalog select entities independently of write policy."""
     coordinator = entry.runtime_data
-    sources = [
-        source
-        for source in control_entity_sources(coordinator, EntityPlatform.SELECT)
-        if _policy_options(source)
-    ]
+    sources = control_entity_sources(coordinator, EntityPlatform.SELECT)
     devices_by_role = {}
     for source in sources:
         devices_by_role.setdefault(source.role, set()).add(source.device_id)
@@ -45,7 +42,7 @@ async def async_setup_entry(
 
 
 class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
-    """Expose one policy-approved documented enum register."""
+    """Expose one cataloged documented enum register."""
 
     _attr_has_entity_name = True
 
@@ -104,8 +101,15 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
         option = str(raw) if raw is not None else None
         return option if option in self.options else None
 
+    @property
+    def suggested_object_id(self) -> str:
+        """Return a stable language-independent low-level object ID."""
+        return suggested_control_object_id(self._source)
+
     async def async_select_option(self, option: str) -> None:
         """Resolve a documented option and use the verified write runtime."""
+        if self._source.policy is None or not self._source.policy.enabled:
+            raise ServiceValidationError("writing is not enabled by policy")
         raw = self._raw_by_option.get(option)
         if raw is None:
             raise ServiceValidationError("option is not approved for this entity")
@@ -120,7 +124,8 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
 def _policy_options(source: ControlEntitySource) -> dict[str, int]:
     """Return stable raw-value keys narrowed by the runtime policy subset."""
     documented = source.register.enum or {}
-    allowed = source.policy.allowed_enum_values
+    policy = source.policy if source.policy and source.policy.enabled else None
+    allowed = policy.allowed_enum_values if policy else None
     return {
         str(raw): raw
         for raw in documented

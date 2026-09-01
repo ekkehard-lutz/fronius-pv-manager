@@ -657,28 +657,28 @@
       }
     },
     "number": {
-      "model_123_conn_wintms": {"name": "Zeitfenster für die Verbindung"},
-      "model_123_conn_rvrttms": {"name": "Rückfallzeit für die Verbindung"},
-      "model_123_wmaxlimpct": {"name": "Maximale Ausgangsleistung"},
-      "model_123_wmaxlimpct_wintms": {"name": "Zeitfenster der Leistungsbegrenzung"},
-      "model_123_wmaxlimpct_rvrttms": {"name": "Rückfallzeit der Leistungsbegrenzung"},
-      "model_123_outpfset": {"name": "Leistungsfaktor-Sollwert"},
-      "model_123_outpfset_wintms": {"name": "Zeitfenster des Leistungsfaktors"},
-      "model_123_outpfset_rvrttms": {"name": "Rückfallzeit des Leistungsfaktors"},
-      "model_123_outpfset_rmptms": {"name": "Rampenzeit des Leistungsfaktors"},
-      "model_123_varmaxpct": {"name": "Blindleistungsgrenze"},
-      "model_123_varpct_wintms": {"name": "Zeitfenster der Blindleistung"},
-      "model_123_varpct_rvrttms": {"name": "Rückfallzeit der Blindleistung"},
-      "model_123_varpct_rmptms": {"name": "Rampenzeit der Blindleistung"},
-      "model_124_vachamax": {"name": "Maximale Lade-Scheinleistung"},
-      "model_124_minrsvpct": {"name": "Mindestspeicherreserve"},
-      "model_124_outwrte": {"name": "Maximale Entladerate"},
-      "model_124_inwrte": {"name": "Maximale Laderate"},
-      "model_124_inoutwrte_rvrttms": {"name": "Rückfallzeit für Laden und Entladen"}
+      "model_123_conn_wintms": {"name": "Register Zeitfenster für die Verbindung"},
+      "model_123_conn_rvrttms": {"name": "Register Rückfallzeit für die Verbindung"},
+      "model_123_wmaxlimpct": {"name": "Register maximale Ausgangsleistung"},
+      "model_123_wmaxlimpct_wintms": {"name": "Register Zeitfenster der Leistungsbegrenzung"},
+      "model_123_wmaxlimpct_rvrttms": {"name": "Register Rückfallzeit der Leistungsbegrenzung"},
+      "model_123_outpfset": {"name": "Register Leistungsfaktor-Sollwert"},
+      "model_123_outpfset_wintms": {"name": "Register Zeitfenster des Leistungsfaktors"},
+      "model_123_outpfset_rvrttms": {"name": "Register Rückfallzeit des Leistungsfaktors"},
+      "model_123_outpfset_rmptms": {"name": "Register Rampenzeit des Leistungsfaktors"},
+      "model_123_varmaxpct": {"name": "Register Blindleistungsgrenze"},
+      "model_123_varpct_wintms": {"name": "Register Zeitfenster der Blindleistung"},
+      "model_123_varpct_rvrttms": {"name": "Register Rückfallzeit der Blindleistung"},
+      "model_123_varpct_rmptms": {"name": "Register Rampenzeit der Blindleistung"},
+      "model_124_vachamax": {"name": "Register maximale Lade-Scheinleistung"},
+      "model_124_minrsvpct": {"name": "Register Mindestspeicherreserve"},
+      "model_124_outwrte": {"name": "Register maximale Entladerate"},
+      "model_124_inwrte": {"name": "Register maximale Laderate"},
+      "model_124_inoutwrte_rvrttms": {"name": "Register Rückfallzeit für Laden und Entladen"}
     },
     "select": {
       "model_124_chagriset": {
-        "name": "Netzladung",
+        "name": "Register Netzladung",
         "state": {
           "0": "PV (Netzladung deaktiviert)",
           "1": "GRID (Netzladung aktiviert)"

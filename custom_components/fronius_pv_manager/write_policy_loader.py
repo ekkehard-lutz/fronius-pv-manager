@@ -112,13 +112,14 @@ def _parse_policy(model_id: int, register_name: str, settings_value) -> WritePol
     settings = _mapping(settings_value, f"register {model_id}:{register_name}")
     _exact_keys(
         settings,
-        {"minimum", "maximum", "step", "values", "bits"},
+        {"enabled", "minimum", "maximum", "step", "values", "bits"},
         f"register {model_id}:{register_name}",
         required=set(),
     )
     minimum = _optional_number(settings, "minimum")
     maximum = _optional_number(settings, "maximum")
     step = _optional_number(settings, "step")
+    enabled = _optional_boolean(settings, "enabled", default=True)
     allowed_enum_values = _enum_values(settings.get("values"), definition)
     allowed_bit_mask = _bit_mask(settings.get("bits"), definition)
     try:
@@ -130,6 +131,7 @@ def _parse_policy(model_id: int, register_name: str, settings_value) -> WritePol
             step=step,
             allowed_enum_values=allowed_enum_values,
             allowed_bit_mask=allowed_bit_mask,
+            enabled=enabled,
         )
         validate_write_policy(policy, definition)
     except WritePolicyError as err:
@@ -172,6 +174,16 @@ def _optional_number(settings: dict, key: str) -> int | float | None:
     value = settings[key]
     if type(value) not in {int, float} or not math.isfinite(value):
         raise WritePolicyLoadError(f"{key} must be a finite number")
+    return value
+
+
+def _optional_boolean(settings: dict, key: str, *, default: bool) -> bool:
+    """Return one strict YAML boolean without accepting integer coercion."""
+    if key not in settings:
+        return default
+    value = settings[key]
+    if type(value) is not bool:
+        raise WritePolicyLoadError(f"{key} must be a boolean")
     return value
 
 

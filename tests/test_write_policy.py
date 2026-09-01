@@ -28,6 +28,7 @@ def test_minimum_storage_reserve_policy_is_semantic_and_immutable() -> None:
     assert policy.minimum == 0
     assert policy.maximum == 100
     assert policy.step is None
+    assert policy.enabled
     assert resolve_policy_definition(policy) is register("MinRsvPct")
     assert not hasattr(policy, "transport_address")
     assert not hasattr(policy, "scale_factor")
@@ -82,6 +83,31 @@ def test_enum_policy_can_only_narrow_documented_values() -> None:
     validate_policy_value(charge_only, definition, 0)
     with pytest.raises(WritePolicyError, match="not approved"):
         validate_policy_value(charge_only, definition, 1)
+
+
+def test_policy_enabled_requires_an_actual_boolean() -> None:
+    """The immutable policy model rejects Python's boolean-like values."""
+    assert WritePolicy(124, "MinRsvPct", enabled=False).enabled is False
+    for value in (0, 1, "true", None, [], {}):
+        with pytest.raises(WritePolicyError, match="boolean"):
+            WritePolicy(124, "MinRsvPct", enabled=value)  # type: ignore[arg-type]
+
+
+def test_disabled_policy_rejects_values_after_definition_validation() -> None:
+    """Disabled policy metadata remains valid but authorizes no semantic value."""
+    policy = WritePolicy(124, "MinRsvPct", 5, 20, enabled=False)
+    validate_write_policy(policy, register("MinRsvPct"))
+    with pytest.raises(WritePolicyError, match="disabled"):
+        validate_policy_value(policy, register("MinRsvPct"), 10)
+
+
+def test_empty_enum_subset_is_not_a_valid_policy() -> None:
+    """An enabled SELECT policy must retain at least one documented option."""
+    with pytest.raises(WritePolicyError, match="must not be empty"):
+        validate_write_policy(
+            WritePolicy(124, "ChaGriSet", allowed_enum_values=frozenset()),
+            register("ChaGriSet"),
+        )
 
 
 def test_bitfield_policy_restricts_documented_mask_subset() -> None:

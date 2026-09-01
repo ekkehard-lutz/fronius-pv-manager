@@ -28,11 +28,13 @@ def test_shipped_default_contains_exact_intended_approvals() -> None:
     reserve = policies[(124, "MinRsvPct")]
     assert reserve.minimum == 0
     assert reserve.maximum == 100
+    assert reserve.enabled
     assert reserve.allowed_enum_values is None
     charging_source = policies[(124, "ChaGriSet")]
     assert charging_source.minimum is None
     assert charging_source.maximum is None
     assert charging_source.allowed_enum_values == frozenset({0, 1})
+    assert charging_source.enabled
 
 
 def test_first_load_creates_installation_policy_from_default(tmp_path: Path) -> None:
@@ -75,6 +77,47 @@ def test_valid_narrower_numeric_range_is_accepted() -> None:
     )
     assert policies[(124, "OutWRte")].minimum == -50
     assert policies[(124, "OutWRte")].maximum == 75
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_explicit_enabled_boolean_is_preserved(enabled: bool) -> None:
+    """Policy write authorization accepts strict YAML booleans."""
+    policies = load_write_policy_text(
+        policy_yaml(
+            "    MinRsvPct:\n"
+            f"      enabled: {str(enabled).lower()}\n"
+            "      minimum: 5\n"
+            "      maximum: 20\n"
+        )
+    )
+    policy = policies[(124, "MinRsvPct")]
+    assert policy.enabled is enabled
+    assert policy.minimum == 5
+    assert policy.maximum == 20
+
+
+@pytest.mark.parametrize(
+    "rendered", ["0", "1", "'true'", "'false'", "null", "[]", "{}"]
+)
+def test_enabled_rejects_non_boolean_yaml_values(rendered: str) -> None:
+    """No YAML scalar or collection may be coerced into write permission."""
+    with pytest.raises(WritePolicyLoadError, match="enabled must be a boolean"):
+        load_write_policy_text(
+            policy_yaml(f"    MinRsvPct:\n      enabled: {rendered}\n")
+        )
+
+
+def test_disabled_policy_still_undergoes_semantic_validation() -> None:
+    """Disabling an entry cannot preserve unsafe or broadened constraints."""
+    with pytest.raises(WritePolicyLoadError, match="broadens"):
+        load_write_policy_text(
+            policy_yaml(
+                "    MinRsvPct:\n"
+                "      enabled: false\n"
+                "      minimum: -1\n"
+                "      maximum: 20\n"
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -179,6 +222,12 @@ def test_valid_enum_subset_resolves_labels_and_numeric_values() -> None:
         policy_yaml("    ChaGriSet:\n      values: [1]\n")
     )
     assert numeric[(124, "ChaGriSet")].allowed_enum_values == frozenset({1})
+
+
+def test_empty_enum_subset_is_rejected_instead_of_hiding_catalog_select() -> None:
+    """An empty approval cannot create an unreadable Home Assistant select."""
+    with pytest.raises(WritePolicyLoadError, match="must not be empty"):
+        load_write_policy_text(policy_yaml("    ChaGriSet:\n      values: []\n"))
 
 
 @pytest.mark.parametrize("value", ["UNKNOWN", 2, True])

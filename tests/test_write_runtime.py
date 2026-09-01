@@ -67,8 +67,9 @@ class RuntimeTransport(FakeTransport):
 class RecordingCoordinator(FroniusPVCoordinator):
     """Coordinator whose requested refreshes are observable without polling."""
 
-    def __init__(self, hass, transport) -> None:
-        policies = {(124, "MinRsvPct"): WritePolicy(124, "MinRsvPct", 0, 100)}
+    def __init__(self, hass, transport, policy=None) -> None:
+        policy = policy or WritePolicy(124, "MinRsvPct", 0, 100)
+        policies = {(124, "MinRsvPct"): policy}
         super().__init__(hass, FakeEntry({}), {1: transport}, policies)
         self.discovered_models_by_device = {
             1: (DiscoveredModel(124, MODEL_BASE, 24),)
@@ -102,10 +103,10 @@ class YieldingHass(FakeHass):
         return target(*args)
 
 
-def runtime(*, hass=None, transport=None):
+def runtime(*, hass=None, transport=None, policy=None):
     """Return a configured coordinator and writable synthetic transport."""
     transport = transport or RuntimeTransport()
-    coordinator = RecordingCoordinator(hass or FakeHass(), transport)
+    coordinator = RecordingCoordinator(hass or FakeHass(), transport, policy)
     return coordinator, transport
 
 
@@ -157,6 +158,35 @@ async def test_lookup_and_policy_failures_are_distinct_and_do_not_write() -> Non
                 1, 124, "MinRsvPct", value
             )
     assert transport.write_calls == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_policy_rejects_before_modbus() -> None:
+    """An explicitly disabled entry authorizes no preparation or write I/O."""
+    coordinator, transport = runtime(
+        policy=WritePolicy(124, "MinRsvPct", 5, 20, enabled=False)
+    )
+
+    with pytest.raises(WriteNotApprovedError, match="disabled"):
+        await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", 10)
+
+    assert transport.read_calls == []
+    assert transport.write_calls == []
+    assert coordinator.refresh_requests == 0
+
+
+@pytest.mark.asyncio
+async def test_missing_policy_rejects_before_modbus() -> None:
+    """An absent exact allow-list entry performs no preparation or write I/O."""
+    coordinator, transport = runtime()
+    coordinator.write_policies = {}
+
+    with pytest.raises(WriteNotApprovedError, match="not approved"):
+        await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", 10)
+
+    assert transport.read_calls == []
+    assert transport.write_calls == []
+    assert coordinator.refresh_requests == 0
 
 
 @pytest.mark.asyncio

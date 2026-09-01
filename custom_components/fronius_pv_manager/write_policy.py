@@ -30,6 +30,7 @@ class WritePolicy:
     allowed_enum_values: frozenset[int] | None = None
     allowed_bit_mask: int | None = None
     safety_class: WriteSafetyClass = WriteSafetyClass.USER_CONFIGURATION
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         """Reject internally inconsistent policy metadata."""
@@ -37,6 +38,8 @@ class WritePolicy:
             raise WritePolicyError("model ID must be non-negative")
         if not self.register_name.strip():
             raise WritePolicyError("register name must not be empty")
+        if type(self.enabled) is not bool:
+            raise WritePolicyError("enabled must be a boolean")
         if (
             self.minimum is not None
             and self.maximum is not None
@@ -84,6 +87,8 @@ def validate_write_policy(
     if policy.allowed_enum_values is not None:
         if definition.data_type is not RegisterDataType.ENUM16:
             raise WritePolicyError("enum subset requires an enum register")
+        if not policy.allowed_enum_values:
+            raise WritePolicyError("enum subset must not be empty")
         documented = frozenset(definition.enum or {})
         if not policy.allowed_enum_values <= documented:
             raise WritePolicyError("policy allows an undocumented enum value")
@@ -106,6 +111,8 @@ def validate_policy_value(
 ) -> None:
     """Validate a semantic value against policy-only restrictions."""
     validate_write_policy(policy, definition)
+    if not policy.enabled:
+        raise WritePolicyError("writes are disabled by policy")
     if definition.data_type is RegisterDataType.ENUM16:
         if (
             policy.allowed_enum_values is not None

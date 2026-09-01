@@ -15,6 +15,7 @@ from .control_entity import (
     ControlEntitySource,
     control_entity_sources,
     current_control_value,
+    suggested_control_object_id,
 )
 from .coordinator import FroniusPVCoordinator
 from .models import EntityCategoryHint, EntityPlatform
@@ -26,13 +27,12 @@ async def async_setup_entry(
     entry: FroniusPVConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Create catalog numbers that have explicit runtime write policy."""
+    """Create safely representable catalog number entities."""
     coordinator = entry.runtime_data
     sources = [
         source
         for source in control_entity_sources(coordinator, EntityPlatform.NUMBER)
-        if _effective_range(source)[0] is not None
-        and _effective_range(source)[1] is not None
+        if _has_finite_hard_range(source)
     ]
     devices_by_role = {}
     for source in sources:
@@ -49,7 +49,7 @@ async def async_setup_entry(
 
 
 class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
-    """Expose one policy-approved numeric register without optimistic state."""
+    """Expose one cataloged numeric register without optimistic state."""
 
     _attr_has_entity_name = True
 
@@ -109,8 +109,15 @@ class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
         value = current_control_value(self.coordinator, self._source)
         return float(value) if type(value) in {int, float} else None
 
+    @property
+    def suggested_object_id(self) -> str:
+        """Return a stable language-independent low-level object ID."""
+        return suggested_control_object_id(self._source)
+
     async def async_set_native_value(self, value: float) -> None:
         """Write through policy, encoder, one-shot transport, and verification."""
+        if self._source.policy is None or not self._source.policy.enabled:
+            raise ServiceValidationError("writing is not enabled by policy")
         if (
             not math.isfinite(value)
             or value < self.native_min_value
@@ -130,14 +137,21 @@ def _effective_range(
 ) -> tuple[float | None, float | None]:
     """Intersect hard register and installation-policy semantic bounds."""
     hard = source.register.valid_range
+    policy = source.policy if source.policy and source.policy.enabled else None
     minimums = [
         value
-        for value in (hard.minimum if hard else None, source.policy.minimum)
+        for value in (
+            hard.minimum if hard else None,
+            policy.minimum if policy else None,
+        )
         if value is not None
     ]
     maximums = [
         value
-        for value in (hard.maximum if hard else None, source.policy.maximum)
+        for value in (
+            hard.maximum if hard else None,
+            policy.maximum if policy else None,
+        )
         if value is not None
     ]
     return (
@@ -153,8 +167,21 @@ def _effective_step(source: ControlEntitySource) -> float | None:
         if source.register.valid_range is not None
         else None
     )
-    step = source.policy.step if source.policy.step is not None else hard_step
+    policy = source.policy if source.policy and source.policy.enabled else None
+    step = policy.step if policy and policy.step is not None else hard_step
     return float(Decimal(str(step))) if step is not None else None
+
+
+def _has_finite_hard_range(source: ControlEntitySource) -> bool:
+    """Require authoritative finite bounds before exposing a number entity."""
+    hard = source.register.valid_range
+    return (
+        hard is not None
+        and hard.minimum is not None
+        and hard.maximum is not None
+        and math.isfinite(hard.minimum)
+        and math.isfinite(hard.maximum)
+    )
 
 
 def _entity_category(hint: EntityCategoryHint) -> EntityCategory | None:

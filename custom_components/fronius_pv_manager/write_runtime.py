@@ -99,6 +99,10 @@ class FroniusPVWriteRuntime:
             raise WriteNotApprovedError(
                 f"register {model_id}:{register_name} is not approved for writes"
             )
+        if not policy.enabled:
+            raise WriteNotApprovedError(
+                f"writes are disabled for register {model_id}:{register_name}"
+            )
         definition = resolve_policy_definition(policy)
         try:
             validate_policy_value(policy, definition, value)

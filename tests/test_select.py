@@ -30,11 +30,12 @@ PV_LABEL = "PV (Charging from grid disabled)"
 GRID_LABEL = "GRID (Charging from grid enabled)"
 
 
-async def select_entities(policy: WritePolicy):
-    """Set up select entities for one synthetic runtime policy."""
-    coordinator = ControlCoordinator(
-        {(policy.model_id, policy.register_name): policy}
+async def select_entities(policy: WritePolicy | None):
+    """Set up select entities for one optional synthetic runtime policy."""
+    policies = (
+        {} if policy is None else {(policy.model_id, policy.register_name): policy}
     )
+    coordinator = ControlCoordinator(policies)
     entry = FakeEntry({})
     entry.runtime_data = coordinator
     entities = []
@@ -65,36 +66,43 @@ async def test_default_policy_exposes_one_storage_select() -> None:
     assert not entity.entity_description.entity_registry_enabled_default
     assert entity.options == [PV, GRID]
     assert entity.current_option == PV
+    assert entity.suggested_object_id == "storage_reg_grid_charging"
     assert entity.device_info["identifiers"] == {
         ("fronius_pv_manager", "test-entry:device1:storage")
     }
 
 
 @pytest.mark.asyncio
-async def test_missing_charging_source_approval_exposes_no_select() -> None:
-    """Removing the exact ChaGriSet approval removes its writable entity."""
-    coordinator = ControlCoordinator(
-        {(124, "MinRsvPct"): WritePolicy(124, "MinRsvPct", 0, 100)}
-    )
-    entry = FakeEntry({})
-    entry.runtime_data = coordinator
-    entities = []
+async def test_missing_policy_keeps_select_readable_but_rejects_writes() -> None:
+    """Catalog exposure survives absent write permission."""
+    coordinator, entities = await select_entities(None)
 
-    await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
-    )
-
-    assert entities == []
+    assert len(entities) == 1
+    assert entities[0].options == [PV, GRID]
+    assert entities[0].current_option == PV
+    assert not entities[0].entity_description.entity_registry_enabled_default
+    with pytest.raises(ServiceValidationError, match="not enabled"):
+        await entities[0].async_select_option(GRID)
+    assert coordinator.control_transport.write_calls == []
 
 
 @pytest.mark.asyncio
-async def test_empty_enum_subset_exposes_no_select() -> None:
-    """A policy approving no enum values cannot create an invalid HA select."""
+async def test_disabled_policy_keeps_all_options_and_rejects_writes() -> None:
+    """Disabled enum narrowing is retained but ignored for presentation."""
     coordinator, entities = await select_entities(
-        WritePolicy(124, "ChaGriSet", allowed_enum_values=frozenset())
+        WritePolicy(
+            124,
+            "ChaGriSet",
+            allowed_enum_values=frozenset({1}),
+            enabled=False,
+        )
     )
 
-    assert entities == []
+    assert len(entities) == 1
+    assert entities[0].options == [PV, GRID]
+    assert entities[0].current_option == PV
+    with pytest.raises(ServiceValidationError, match="not enabled"):
+        await entities[0].async_select_option(GRID)
     assert coordinator.control_transport.write_calls == []
 
 

@@ -29,6 +29,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import FroniusPVConfigEntry
 from .const import DOMAIN
 from .coordinator import FroniusPVCoordinator
+from .entity_naming import suggested_object_id
 from .models import (
     EntityCategoryHint,
     EntityDefinition,
@@ -99,6 +100,8 @@ class SensorSource:
     device_metadata: DeviceMetadata | None = None
     block_name: str | None = None
     instance_index: int | None = None
+    model_160_kind: Model160ModuleKind | None = None
+    mppt_number: int | None = None
 
 
 async def async_setup_entry(
@@ -196,6 +199,13 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
                                 device_metadata=device_metadata,
                                 block_name=block.name,
                                 instance_index=instance.instance_index,
+                                model_160_kind=classified.semantic_kind,
+                                mppt_number=(
+                                    mppt_number
+                                    if classified.semantic_kind
+                                    is Model160ModuleKind.MPPT
+                                    else None
+                                ),
                             )
                         )
     return tuple(sources)
@@ -235,6 +245,16 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
             entry_id,
             source,
             distinguish_device_name,
+        )
+
+    @property
+    def suggested_object_id(self) -> str:
+        """Return a stable semantic ID independent of translated display names."""
+        return suggested_object_id(
+            self._source.entity,
+            model_160_kind=self._source.model_160_kind,
+            register_name=self._source.register_name,
+            mppt_number=self._source.mppt_number,
         )
 
     @property

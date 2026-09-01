@@ -4,6 +4,7 @@ import pytest
 
 from custom_components.fronius_pv_manager.models import (
     EntityCategoryHint,
+    EntityDefinition,
     EntityPlatform,
     PhysicalDeviceRole,
     RegisterAccess,
@@ -73,6 +74,84 @@ def assert_entity(
 def test_common_identity_stays_raw_for_future_device_info() -> None:
     """Model 1 identity metadata is not duplicated as diagnostic entities."""
     assert all(item.entity is None for item in MODEL_1.registers)
+
+
+@pytest.mark.parametrize(
+    "suggested_object_id",
+    ("", "Uppercase", "leading_", "_trailing", "double__underscore", "not-safe"),
+)
+def test_suggested_object_id_rejects_invalid_values(
+    suggested_object_id: str,
+) -> None:
+    """Neutral object-ID metadata accepts only stable HA-safe identifiers."""
+    with pytest.raises(ValueError, match="suggested_object_id"):
+        EntityDefinition(
+            platform=EntityPlatform.SENSOR,
+            key="test",
+            suggested_object_id=suggested_object_id,
+        )
+
+
+def test_suggested_object_id_is_optional_and_accepts_semantic_value() -> None:
+    """Existing construction remains valid while semantic IDs are retained."""
+    assert EntityDefinition(EntityPlatform.SENSOR, "test").suggested_object_id is None
+    assert (
+        EntityDefinition(
+            EntityPlatform.SENSOR,
+            "test",
+            suggested_object_id="phase_a_current",
+        ).suggested_object_id
+        == "phase_a_current"
+    )
+
+
+@pytest.mark.parametrize(
+    "role, models",
+    (
+        (
+            PhysicalDeviceRole.INVERTER,
+            (MODEL_103, MODEL_120, MODEL_121, MODEL_122, MODEL_123),
+        ),
+        (PhysicalDeviceRole.STORAGE, (MODEL_124,)),
+        (PhysicalDeviceRole.METER, (MODEL_203,)),
+    ),
+)
+def test_fixed_runtime_device_composition_has_unique_semantic_object_ids(
+    role: PhysicalDeviceRole,
+    models: tuple[SunSpecModelDefinition, ...],
+) -> None:
+    """Models coexisting on one effective HA device cannot collide by domain."""
+    seen: set[tuple[EntityPlatform, str]] = set()
+    for model in models:
+        for item in model.registers:
+            entity = item.entity
+            if (
+                entity is None
+                or entity.device_role is not role
+                or entity.platform not in {
+                    EntityPlatform.SENSOR,
+                    EntityPlatform.NUMBER,
+                    EntityPlatform.SELECT,
+                }
+            ):
+                continue
+            assert entity.suggested_object_id is not None
+            identity = (entity.platform, entity.suggested_object_id)
+            assert identity not in seen
+            seen.add(identity)
+
+
+def test_representative_semantic_object_ids() -> None:
+    """Representative inverter, storage, and meter IDs remain role-neutral."""
+    assert register(MODEL_103, "W").entity.suggested_object_id == "ac_power"
+    assert (
+        register(MODEL_124, "ChaState").entity.suggested_object_id
+        == "state_of_charge"
+    )
+    assert (
+        register(MODEL_203, "TotWhExp").entity.suggested_object_id
+        == "exported_energy"
+    )
 
 
 def test_scale_factors_and_padding_are_never_entities() -> None:

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .coordinator import FroniusPVCoordinator
+from .entity_naming import suggested_object_id
 from .models import (
     EntityDefinition,
     EntityPlatform,
@@ -11,11 +12,6 @@ from .models import (
 )
 from .sensor import DeviceMetadata, _device_metadata
 from .write_policy import WritePolicy
-
-_HUMAN_READABLE_OBJECT_IDS = {
-    (124, "MinRsvPct"): "minimum_storage_reserve",
-    (124, "ChaGriSet"): "grid_charging",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,9 +98,4 @@ def current_control_value(
 
 def suggested_control_object_id(source: ControlEntitySource) -> str:
     """Return one stable language-independent low-level object ID."""
-    prefix = f"model_{source.model_id}_"
-    fallback = source.entity.key.removeprefix(prefix)
-    name = _HUMAN_READABLE_OBJECT_IDS.get(
-        (source.model_id, source.register_name), fallback
-    )
-    return f"{source.role.value}_reg_{name}"
+    return suggested_object_id(source.entity)

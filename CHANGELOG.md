@@ -7,6 +7,9 @@ releases will use semantic versioning.
 
 ### Added
 
+- Language-independent semantic object IDs for newly registered entities.
+  Entity IDs from earlier beta releases are not migrated.
+
 - Initial Fronius PV Manager project structure.
 - MIT license and Home Assistant/HACS metadata.
 - English and German localization foundation.

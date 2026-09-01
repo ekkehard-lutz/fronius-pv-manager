@@ -1,5 +1,9 @@
 # Fronius PV Manager
 
+Fresh Home Assistant entities use stable, language-independent semantic object
+IDs. Home Assistant still owns device-name prefixing and translated display
+names. Entity IDs created by earlier beta versions are not migrated.
+
 ## Status
 
 Fronius PV Manager is under active development and is not yet ready for

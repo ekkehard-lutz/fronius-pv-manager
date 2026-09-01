@@ -233,6 +233,31 @@ async def test_physical_roles_create_separate_generic_devices_and_unique_ids() -
         "test-entry_device1_storage_model_124_chastate",
         "test-entry_device1_meter_model_203_w",
     }
+    assert [entity.suggested_object_id for entity in selected] == [
+        "ac_power",
+        "state_of_charge",
+        "ac_power",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fixed_sensor_object_ids_are_semantic_not_translated() -> None:
+    """Catalog IDs stay stable independently of localized entity names."""
+    _, entities, _ = await _entities_for(
+        _snapshot(MODEL_103),
+        _snapshot(MODEL_124),
+        _snapshot(MODEL_203),
+    )
+
+    assert _by_register(entities, "W")[0].suggested_object_id == "ac_power"
+    assert (
+        _by_register(entities, "ChaState")[0].suggested_object_id
+        == "state_of_charge"
+    )
+    assert (
+        _by_register(entities, "TotWhExp")[0].suggested_object_id
+        == "exported_energy"
+    )
 
 
 @pytest.mark.asyncio
@@ -713,6 +738,10 @@ async def test_model_160_modules_use_runtime_roles_and_stable_instance_ids() -> 
         "test-entry_device1_inverter_model_160_module_dcw_module_instance0",
         "test-entry_device1_storage_model_160_module_dcw_module_instance1",
     }
+    assert {entity.suggested_object_id for entity in powers} == {
+        "mppt_1_dc_power",
+        "charging_power",
+    }
     assert all("model160-" not in entity.unique_id for entity in powers)
     assert {entity.entity_description.translation_key for entity in powers} == {
         "model_160_mppt_dcw",
@@ -765,6 +794,12 @@ async def test_model_160_semantics_name_mppt_and_storage_flows_distinctly() -> N
         "test-entry_device1_storage_model_160_module_dcw_module_instance1",
         "test-entry_device1_inverter_model_160_module_dcw_module_instance2",
         "test-entry_device1_storage_model_160_module_dcw_module_instance3",
+    }
+    assert {entity.suggested_object_id for entity in powers} == {
+        "mppt_1_dc_power",
+        "charging_power",
+        "mppt_2_dc_power",
+        "discharging_power",
     }
 
 

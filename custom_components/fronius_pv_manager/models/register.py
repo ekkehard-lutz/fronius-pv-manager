@@ -13,6 +13,7 @@ Keeping these address spaces separate prevents vendor documentation details or
 transport-library conventions from leaking into reusable model definitions.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -108,6 +109,7 @@ class EntityDefinition:
     translation_key: str | None = None
     translate_enum_values: bool = False
     presentation_unit: str | None = None
+    suggested_object_id: str | None = None
 
     def __post_init__(self) -> None:
         """Reject metadata that cannot identify an entity."""
@@ -115,6 +117,16 @@ class EntityDefinition:
             raise ValueError("entity key must not be empty")
         if self.translation_key is not None and not self.translation_key.strip():
             raise ValueError("entity translation key must not be empty")
+        if self.suggested_object_id is not None and (
+            not isinstance(self.suggested_object_id, str)
+            or not re.fullmatch(
+                r"[a-z0-9]+(?:_[a-z0-9]+)*", self.suggested_object_id
+            )
+        ):
+            raise ValueError(
+                "suggested_object_id must be lowercase and contain only "
+                "letters, numbers, and single underscores"
+            )
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,6 +16,42 @@ releases will use semantic versioning.
 - Unit tests for the core model.
 - CI-ready validation with Ruff and pytest.
 
+## [v0.2.0] - 2026-09-02
+
+### Added
+
+- First stable Fronius PV Manager release.
+- Local SunSpec discovery, model decoding, and polling for supported inverter,
+  storage, and Smart Meter roles.
+- Home Assistant Config Flow, stable semantic entity IDs, and operational and
+  diagnostic sensor integration.
+- Multi-device-ID support through one shared persistent Modbus TCP connection
+  per configured host and port.
+- Complete low-level writable-register inventory for SunSpec Models 123 and
+  124, with NUMBER and SELECT entities where GEN24 behavior and authoritative
+  constraints permit safe representation.
+
+### Safety
+
+- Added a fail-closed installation write policy, authoritative semantic
+  validation, exactly-one physical writes, mandatory verified readback, and
+  non-optimistic coordinator state.
+- Preserved GEN24-specific read-only or unsupported handling for controls that
+  cannot safely be exposed, including `WMaxLimPct_RmpTms`, `VAChaMax`, and the
+  dynamic nameplate-dependent `OutPFSet` domain.
+- Corrected `StorCtl_Mod` terminology to describe activation of charge and
+  discharge power-window limits rather than direct operating commands.
+
+### Validation
+
+- Hardware-tested on a Fronius Symo GEN24 10.0 with BYD storage and a Fronius
+  Smart Meter TS 65A-3.
+- Confirmed policy-disabled rejection before Modbus I/O, storage power-window
+  controls, forced charging and discharging, grid-charging permission, verified
+  readback, and restoration of the original register state.
+- Documented the hardware-validated reference setup, capability-based
+  compatibility model, and external contributor workflow.
+
 ## [v0.2.0-beta.9] - 2026-09-02
 
 ### Added

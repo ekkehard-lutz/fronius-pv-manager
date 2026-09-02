@@ -699,17 +699,19 @@ async def test_model_160_epoch_counter_remains_numeric_seconds() -> None:
 
 
 @pytest.mark.asyncio
-async def test_supported_seconds_duration_uses_duration_metadata() -> None:
-    """A genuine ramp-time sensor uses seconds and the HA duration class."""
+async def test_gen24_power_limit_ramp_time_is_one_read_only_sensor() -> None:
+    """The GEN24-specific readable RW register has one duration sensor."""
     payload = [0] * 24
     payload[6] = 12
     _, entities, transport = await _entities_for(_snapshot(MODEL_123, payload))
-    ramp_time = _by_register(entities, "WMaxLimPct_RmpTms")[0]
-
+    matches = _by_register(entities, "WMaxLimPct_RmpTms")
+    assert len(matches) == 1
+    ramp_time = matches[0]
     assert ramp_time.native_value == 12
     assert ramp_time.native_unit_of_measurement == "s"
     assert ramp_time.device_class is SensorDeviceClass.DURATION
     assert ramp_time.state_class is SensorStateClass.MEASUREMENT
+    assert ramp_time.suggested_object_id == "power_limit_ramp_time"
     assert transport.read_calls == []
 
 

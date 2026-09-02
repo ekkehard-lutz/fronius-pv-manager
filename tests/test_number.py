@@ -54,25 +54,25 @@ def by_register(entities, name: str):
     "minimum, maximum",
     [(0, 100), (5, 20)],
 )
-async def test_minimum_reserve_number_uses_effective_policy_range(
+async def test_discharge_rate_number_uses_effective_policy_range(
     minimum: int, maximum: int
 ) -> None:
     """Hard and installation bounds become the advertised number range."""
     coordinator, entities = await number_entities(
-        WritePolicy(124, "MinRsvPct", minimum, maximum)
+        WritePolicy(124, "OutWRte", minimum, maximum)
     )
 
-    entity = by_register(entities, "MinRsvPct")
+    entity = by_register(entities, "OutWRte")
     assert entity._source.role is PhysicalDeviceRole.STORAGE
-    assert entity.native_value == 7
+    assert entity.native_value == 0
     assert entity.native_min_value == minimum
     assert entity.native_max_value == maximum
     assert entity.native_step is None
-    assert entity.native_unit_of_measurement == "%"
+    assert entity.native_unit_of_measurement == "% WChaMax"
     assert entity.entity_category is EntityCategory.CONFIG
     assert not entity.entity_description.entity_registry_enabled_default
-    assert entity.unique_id == "test-entry_device1_storage_model_124_minrsvpct"
-    assert entity.suggested_object_id == "storage_reg_minimum_storage_reserve"
+    assert entity.unique_id == "test-entry_device1_storage_model_124_outwrte"
+    assert entity.suggested_object_id == "storage_reg_maximum_discharge_rate"
     assert entity.device_info["identifiers"] == {
         ("fronius_pv_manager", "test-entry:device1:storage")
     }
@@ -80,13 +80,13 @@ async def test_minimum_reserve_number_uses_effective_policy_range(
 
 
 @pytest.mark.asyncio
-async def test_minimum_reserve_exists_without_policy_with_hard_bounds() -> None:
+async def test_discharge_rate_exists_without_policy_with_hard_bounds() -> None:
     """Catalog exposure and hard presentation bounds do not require policy."""
     coordinator, entities = await number_entities(None)
-    entity = by_register(entities, "MinRsvPct")
+    entity = by_register(entities, "OutWRte")
 
-    assert entity.native_value == 7
-    assert entity.native_min_value == 0
+    assert entity.native_value == 0
+    assert entity.native_min_value == -100
     assert entity.native_max_value == 100
     assert not entity.entity_description.entity_registry_enabled_default
     with pytest.raises(ServiceValidationError, match="not enabled"):
@@ -98,12 +98,12 @@ async def test_minimum_reserve_exists_without_policy_with_hard_bounds() -> None:
 async def test_disabled_policy_keeps_number_readable_with_hard_bounds() -> None:
     """A disabled narrowed policy does not narrow presentation or permit writes."""
     coordinator, entities = await number_entities(
-        WritePolicy(124, "MinRsvPct", 5, 20, enabled=False)
+        WritePolicy(124, "OutWRte", 5, 20, enabled=False)
     )
-    entity = by_register(entities, "MinRsvPct")
+    entity = by_register(entities, "OutWRte")
 
-    assert entity.native_value == 7
-    assert entity.native_min_value == 0
+    assert entity.native_value == 0
+    assert entity.native_min_value == -100
     assert entity.native_max_value == 100
     with pytest.raises(ServiceValidationError, match="not enabled"):
         await entity.async_set_native_value(10)
@@ -113,10 +113,10 @@ async def test_disabled_policy_keeps_number_readable_with_hard_bounds() -> None:
 @pytest.mark.asyncio
 async def test_enabled_policy_without_narrowing_uses_hard_bounds() -> None:
     """Omitted installation limits inherit the authoritative register range."""
-    _, entities = await number_entities(WritePolicy(124, "MinRsvPct"))
-    entity = by_register(entities, "MinRsvPct")
+    _, entities = await number_entities(WritePolicy(124, "OutWRte"))
+    entity = by_register(entities, "OutWRte")
 
-    assert entity.native_min_value == 0
+    assert entity.native_min_value == -100
     assert entity.native_max_value == 100
 
 
@@ -138,15 +138,27 @@ async def test_number_without_finite_effective_bounds_is_not_exposed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_minimum_reserve_is_exposed_with_hard_percentage_bounds() -> None:
+    """MinRsvPct is a readable NUMBER using its project-authoritative range."""
+    _, entities = await number_entities(None)
+    entity = by_register(entities, "MinRsvPct")
+
+    assert entity.native_value == 7
+    assert entity.native_min_value == 0
+    assert entity.native_max_value == 100
+    assert entity.native_unit_of_measurement == "%"
+
+
+@pytest.mark.asyncio
 async def test_out_of_range_number_write_is_rejected_before_modbus() -> None:
     """Advertised bounds reject unsafe calls before the write runtime executes."""
     coordinator, entities = await number_entities(
-        WritePolicy(124, "MinRsvPct", 5, 20)
+        WritePolicy(124, "OutWRte", 5, 20)
     )
 
     for value in (21, float("nan")):
         with pytest.raises(ServiceValidationError):
-            await by_register(entities, "MinRsvPct").async_set_native_value(value)
+            await by_register(entities, "OutWRte").async_set_native_value(value)
 
     assert coordinator.control_transport.write_calls == []
     assert coordinator.refresh_requests == 0
@@ -156,14 +168,14 @@ async def test_out_of_range_number_write_is_rejected_before_modbus() -> None:
 async def test_successful_number_write_uses_verified_runtime_and_refresh() -> None:
     """A number write executes once and publishes only refreshed device state."""
     coordinator, entities = await number_entities(
-        WritePolicy(124, "MinRsvPct", 0, 100)
+        WritePolicy(124, "OutWRte", -100, 100)
     )
-    entity = by_register(entities, "MinRsvPct")
+    entity = by_register(entities, "OutWRte")
 
     await entity.async_set_native_value(10)
 
     assert coordinator.control_transport.write_calls == [
-        (MODEL_BASE + register("MinRsvPct").offset, (1000,))
+        (MODEL_BASE + register("OutWRte").offset, (10,))
     ]
     assert coordinator.refresh_requests == 1
     assert entity.native_value == 10
@@ -172,9 +184,9 @@ async def test_successful_number_write_uses_verified_runtime_and_refresh() -> No
 @pytest.mark.asyncio
 async def test_failed_number_verification_keeps_confirmed_state() -> None:
     """A mismatch neither refreshes nor publishes the requested value."""
-    policy = WritePolicy(124, "MinRsvPct", 0, 100)
+    policy = WritePolicy(124, "OutWRte", -100, 100)
     coordinator = ControlCoordinator(
-        {(124, "MinRsvPct"): policy}, transport=FailingReadBackTransport()
+        {(124, "OutWRte"): policy}, transport=FailingReadBackTransport()
     )
     entry = FakeEntry({})
     entry.runtime_data = coordinator
@@ -184,18 +196,18 @@ async def test_failed_number_verification_keeps_confirmed_state() -> None:
     )
 
     with pytest.raises(WriteVerificationMismatchError):
-        await by_register(entities, "MinRsvPct").async_set_native_value(10)
+        await by_register(entities, "OutWRte").async_set_native_value(10)
 
     assert len(coordinator.control_transport.write_calls) == 1
     assert coordinator.refresh_requests == 0
-    assert by_register(entities, "MinRsvPct").native_value == 7
+    assert by_register(entities, "OutWRte").native_value == 0
 
 
 @pytest.mark.asyncio
 async def test_writable_number_has_no_duplicate_sensor() -> None:
     """Catalog platform selection creates one HA representation per register."""
     coordinator, numbers = await number_entities(
-        WritePolicy(124, "MinRsvPct", 0, 100)
+        WritePolicy(124, "OutWRte", -100, 100)
     )
     entry = FakeEntry({})
     entry.runtime_data = coordinator
@@ -204,8 +216,8 @@ async def test_writable_number_has_no_duplicate_sensor() -> None:
         coordinator.hass, entry, lambda items: sensors.extend(items)
     )
 
-    assert by_register(numbers, "MinRsvPct")
-    assert all(sensor._source.register_name != "MinRsvPct" for sensor in sensors)
+    assert by_register(numbers, "OutWRte")
+    assert all(sensor._source.register_name != "OutWRte" for sensor in sensors)
 
 
 def test_control_translation_keys_cover_catalog_platforms() -> None:

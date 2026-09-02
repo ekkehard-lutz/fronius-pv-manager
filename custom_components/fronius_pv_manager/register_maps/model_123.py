@@ -56,6 +56,7 @@ _RW = RegisterAccess.READ_WRITE
 _DISABLED_ENABLED = {0: "Disabled", 1: "Enabled"}
 _WINDOW_RANGE = ValueRange(minimum=0, maximum=300)
 _REVERSION_RANGE = ValueRange(minimum=0, maximum=28800)
+_RAMP_RANGE = ValueRange(minimum=0, maximum=65534)
 
 _REGISTERS = (
     _register(
@@ -65,6 +66,7 @@ _REGISTERS = (
         _RW,
         unit="Secs",
         description="Time window for connect or disconnect.",
+        valid_range=_WINDOW_RANGE,
     ),
     _register(
         "Conn_RvrtTms",
@@ -73,14 +75,15 @@ _REGISTERS = (
         _RW,
         unit="Secs",
         description="Timeout period for connect or disconnect.",
+        valid_range=_REVERSION_RANGE,
     ),
     _register(
         "Conn",
         2,
-        RegisterDataType.BITFIELD16,
+        RegisterDataType.ENUM16,
         _RW,
         description="Connection control.",
-        bitfield={0x0001: "Connected"},
+        enum={0: "Disconnected", 1: "Connected"},
     ),
     _register(
         "WMaxLimPct",
@@ -90,6 +93,7 @@ _REGISTERS = (
         unit="% WMax",
         scale_factor="WMaxLimPct_SF",
         description="Set power output to the specified level.",
+        valid_range=ValueRange(minimum=0, maximum=100),
     ),
     _register(
         "WMaxLimPct_WinTms",
@@ -113,9 +117,10 @@ _REGISTERS = (
         "WMaxLimPct_RmpTms",
         6,
         RegisterDataType.UINT16,
-        _RO,
+        _RW,
         unit="Secs",
-        description="Power-limit ramp time; not supported by Fronius.",
+        description="Ramp time for moving from current setpoint to new setpoint.",
+        valid_range=_RAMP_RANGE,
     ),
     _register(
         "WMaxLim_Ena",
@@ -158,7 +163,8 @@ _REGISTERS = (
         RegisterDataType.UINT16,
         _RW,
         unit="Secs",
-        description="Power-factor ramp time; not supported by Fronius.",
+        description="Ramp time for moving to the power-factor setpoint.",
+        valid_range=_RAMP_RANGE,
     ),
     _register(
         "OutPFSet_Ena",
@@ -185,6 +191,7 @@ _REGISTERS = (
         unit="% VArMax",
         scale_factor="VArPct_SF",
         description="Reactive power as a percentage of VArMax.",
+        valid_range=ValueRange(minimum=-100, maximum=100),
     ),
     _register(
         "VArAvalPct",
@@ -221,7 +228,8 @@ _REGISTERS = (
         RegisterDataType.UINT16,
         _RW,
         unit="Secs",
-        description="VAR-limit ramp time; not supported by Fronius.",
+        description="Ramp time for moving to the reactive-power setpoint.",
+        valid_range=_RAMP_RANGE,
     ),
     _register(
         "VArPct_Mod",
@@ -275,11 +283,12 @@ MODEL_123 = SunSpecModelDefinition(
 
 _NUMBER_CONTROLS = {
     "Conn_WinTms", "Conn_RvrtTms", "WMaxLimPct", "WMaxLimPct_WinTms",
-    "WMaxLimPct_RvrtTms", "OutPFSet", "OutPFSet_WinTms", "OutPFSet_RvrtTms",
+    "WMaxLimPct_RvrtTms", "OutPFSet",
+    "OutPFSet_WinTms", "OutPFSet_RvrtTms",
     "OutPFSet_RmpTms", "VArMaxPct", "VArPct_WinTms", "VArPct_RvrtTms",
     "VArPct_RmpTms",
 }
-_SWITCH_CONTROLS = {"Conn", "WMaxLim_Ena", "OutPFSet_Ena", "VArPct_Ena"}
+_SELECT_CONTROLS = {"Conn", "WMaxLim_Ena", "OutPFSet_Ena", "VArPct_Ena"}
 MODEL_123 = attach_entities(
     MODEL_123,
     {
@@ -301,12 +310,12 @@ MODEL_123 = attach_entities(
             name: entity(
                 123,
                 name,
-                platform=EntityPlatform.SWITCH,
+                platform=EntityPlatform.SELECT,
                 category=EntityCategoryHint.CONFIG,
                 enabled=False,
                 role=PhysicalDeviceRole.INVERTER,
             )
-            for name in _SWITCH_CONTROLS
+            for name in _SELECT_CONTROLS
         },
         **{
             name: entity(

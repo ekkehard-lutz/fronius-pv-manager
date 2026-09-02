@@ -168,7 +168,7 @@ _REGISTERS = (
         10,
         RegisterDataType.INT16,
         _RW,
-        unit="% WDisChaMax",
+        unit="% WChaMax",
         scale_factor="InOutWRte_SF",
         description="Maximum discharge rate as a percentage of WChaMax.",
         valid_range=ValueRange(minimum=-100, maximum=100),
@@ -345,13 +345,21 @@ MODEL_124 = attach_entities(
                 ),
             )
             for name in (
-                "VAChaMax", "MinRsvPct", "OutWRte", "InWRte",
+                "MinRsvPct", "OutWRte", "InWRte",
                 "InOutWRte_RvrtTms",
             )
         },
         "ChaGriSet": entity(
             124,
             "ChaGriSet",
+            platform=EntityPlatform.SELECT,
+            category=EntityCategoryHint.CONFIG,
+            enabled=False,
+            role=_ROLE,
+        ),
+        "StorCtl_Mod": entity(
+            124,
+            "StorCtl_Mod",
             platform=EntityPlatform.SELECT,
             category=EntityCategoryHint.CONFIG,
             enabled=False,

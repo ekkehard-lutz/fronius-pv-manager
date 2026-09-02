@@ -45,6 +45,11 @@ async def select_entities(policy: WritePolicy | None):
     return coordinator, entities
 
 
+def by_register(entities, name: str):
+    """Return one select entity by semantic register name."""
+    return next(entity for entity in entities if entity._source.register_name == name)
+
+
 @pytest.mark.asyncio
 async def test_default_policy_exposes_one_storage_select() -> None:
     """The shipped ChaGriSet approval creates its cataloged storage control."""
@@ -58,8 +63,8 @@ async def test_default_policy_exposes_one_storage_select() -> None:
         coordinator.hass, entry, lambda items: entities.extend(items)
     )
 
-    assert len(entities) == 1
-    entity = entities[0]
+    assert len(entities) == 2
+    entity = by_register(entities, "ChaGriSet")
     assert entity._source.register_name == "ChaGriSet"
     assert entity._source.role is PhysicalDeviceRole.STORAGE
     assert entity.entity_description.entity_category is EntityCategory.CONFIG
@@ -77,12 +82,13 @@ async def test_missing_policy_keeps_select_readable_but_rejects_writes() -> None
     """Catalog exposure survives absent write permission."""
     coordinator, entities = await select_entities(None)
 
-    assert len(entities) == 1
-    assert entities[0].options == [PV, GRID]
-    assert entities[0].current_option == PV
-    assert not entities[0].entity_description.entity_registry_enabled_default
+    assert len(entities) == 2
+    entity = by_register(entities, "ChaGriSet")
+    assert entity.options == [PV, GRID]
+    assert entity.current_option == PV
+    assert not entity.entity_description.entity_registry_enabled_default
     with pytest.raises(ServiceValidationError, match="not enabled"):
-        await entities[0].async_select_option(GRID)
+        await entity.async_select_option(GRID)
     assert coordinator.control_transport.write_calls == []
 
 
@@ -98,11 +104,12 @@ async def test_disabled_policy_keeps_all_options_and_rejects_writes() -> None:
         )
     )
 
-    assert len(entities) == 1
-    assert entities[0].options == [PV, GRID]
-    assert entities[0].current_option == PV
+    assert len(entities) == 2
+    entity = by_register(entities, "ChaGriSet")
+    assert entity.options == [PV, GRID]
+    assert entity.current_option == PV
     with pytest.raises(ServiceValidationError, match="not enabled"):
-        await entities[0].async_select_option(GRID)
+        await entity.async_select_option(GRID)
     assert coordinator.control_transport.write_calls == []
 
 
@@ -114,10 +121,10 @@ async def test_select_options_come_from_documented_enum_and_policy_subset() -> N
         WritePolicy(124, "ChaGriSet", allowed_enum_values=frozenset({1}))
     )
 
-    assert full[0].options == [PV, GRID]
-    assert full[0].current_option == PV
-    assert narrowed[0].options == [GRID]
-    assert narrowed[0].current_option is None
+    assert by_register(full, "ChaGriSet").options == [PV, GRID]
+    assert by_register(full, "ChaGriSet").current_option == PV
+    assert by_register(narrowed, "ChaGriSet").options == [GRID]
+    assert by_register(narrowed, "ChaGriSet").current_option is None
 
 
 @pytest.mark.asyncio
@@ -128,7 +135,7 @@ async def test_invalid_select_option_is_rejected_without_modbus() -> None:
     )
 
     with pytest.raises(ServiceValidationError):
-        await entities[0].async_select_option(PV)
+        await by_register(entities, "ChaGriSet").async_select_option(PV)
 
     assert coordinator.control_transport.write_calls == []
 
@@ -137,7 +144,7 @@ async def test_invalid_select_option_is_rejected_without_modbus() -> None:
 async def test_successful_selection_uses_verified_write_and_refresh() -> None:
     """Documented option maps to raw enum and follows the existing write path."""
     coordinator, entities = await select_entities(WritePolicy(124, "ChaGriSet"))
-    entity = entities[0]
+    entity = by_register(entities, "ChaGriSet")
 
     await entity.async_select_option(GRID)
 
@@ -151,11 +158,12 @@ async def test_pv_selection_writes_authoritative_raw_zero() -> None:
     """The translated PV UI option key resolves to documented raw value zero."""
     coordinator, entities = await select_entities(WritePolicy(124, "ChaGriSet"))
 
-    await entities[0].async_select_option(PV)
+    entity = by_register(entities, "ChaGriSet")
+    await entity.async_select_option(PV)
 
     assert coordinator.control_transport.write_calls == [(41015, (0,))]
     assert coordinator.refresh_requests == 1
-    assert entities[0].current_option == PV
+    assert entity.current_option == PV
 
 
 @pytest.mark.asyncio
@@ -173,7 +181,7 @@ async def test_verification_failure_does_not_publish_requested_option() -> None:
     await async_setup_entry(
         coordinator.hass, entry, lambda items: entities.extend(items)
     )
-    entity = entities[0]
+    entity = by_register(entities, "ChaGriSet")
 
     with pytest.raises(WriteVerificationMismatchError):
         await entity.async_select_option(GRID)
@@ -181,6 +189,24 @@ async def test_verification_failure_does_not_publish_requested_option() -> None:
     assert coordinator.control_transport.write_calls == [(41015, (1,))]
     assert coordinator.refresh_requests == 0
     assert entity.current_option == PV
+
+
+@pytest.mark.asyncio
+async def test_storage_bitfield_uses_one_safe_combination_select() -> None:
+    """StorCtl_Mod exposes combinations without read-modify-write or duplicates."""
+    policy = WritePolicy(124, "StorCtl_Mod", allowed_bit_mask=3)
+    coordinator, entities = await select_entities(policy)
+    entity = by_register(entities, "StorCtl_Mod")
+
+    assert entity.options == ["0", "1", "2", "3"]
+    assert entity.current_option == "0"
+    assert entity.suggested_object_id == "storage_reg_control_mode"
+
+    await entity.async_select_option("3")
+
+    assert coordinator.control_transport.write_calls == [(41003, (3,))]
+    assert coordinator.refresh_requests == 1
+    assert entity.current_option == "3"
 
 
 def test_select_option_translations_match_stable_keys_and_enum_semantics() -> None:

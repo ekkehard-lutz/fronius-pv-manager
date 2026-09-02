@@ -10,6 +10,7 @@ from . import FroniusPVConfigEntry
 from .control_entity import (
     ControlEntitySource,
     control_entity_sources,
+    current_control_raw_value,
     current_control_value,
     suggested_control_object_id,
 )
@@ -92,6 +93,10 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Map the latest confirmed enum semantic to its stable option key."""
+        if self._source.register.bitfield is not None:
+            raw = current_control_raw_value(self.coordinator, self._source)
+            option = str(raw) if type(raw) is int else None
+            return option if option in self.options else None
         value = current_control_value(self.coordinator, self._source)
         documented = self._source.register.enum or {}
         raw = next(
@@ -123,6 +128,21 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
 
 def _policy_options(source: ControlEntitySource) -> dict[str, int]:
     """Return stable raw-value keys narrowed by the runtime policy subset."""
+    if source.register.bitfield is not None:
+        documented_mask = 0
+        for mask in source.register.bitfield:
+            documented_mask |= mask
+        policy = source.policy if source.policy and source.policy.enabled else None
+        allowed_mask = (
+            policy.allowed_bit_mask
+            if policy and policy.allowed_bit_mask is not None
+            else documented_mask
+        )
+        return {
+            str(raw): raw
+            for raw in range(documented_mask + 1)
+            if raw & ~allowed_mask == 0
+        }
     documented = source.register.enum or {}
     policy = source.policy if source.policy and source.policy.enabled else None
     allowed = policy.allowed_enum_values if policy else None

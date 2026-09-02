@@ -260,7 +260,14 @@ def test_model_124_representative_catalog() -> None:
         False,
         PhysicalDeviceRole.STORAGE,
     )
-    assert register(MODEL_124, "StorCtl_Mod").entity is None
+    assert_entity(
+        register(MODEL_124, "StorCtl_Mod"),
+        EntityPlatform.SELECT,
+        EntityCategoryHint.CONFIG,
+        False,
+        PhysicalDeviceRole.STORAGE,
+    )
+    assert register(MODEL_124, "VAChaMax").entity is None
     assert_entity(
         register(MODEL_124, "WChaMax"),
         EntityPlatform.SENSOR,
@@ -331,7 +338,21 @@ def test_model_123_control_platforms() -> None:
     )
     assert_entity(
         register(MODEL_123, "WMaxLim_Ena"),
-        EntityPlatform.SWITCH,
+        EntityPlatform.SELECT,
+        EntityCategoryHint.CONFIG,
+        False,
+        PhysicalDeviceRole.INVERTER,
+    )
+    assert_entity(
+        register(MODEL_123, "WMaxLimPct_RmpTms"),
+        EntityPlatform.SENSOR,
+        EntityCategoryHint.CONFIG,
+        False,
+        PhysicalDeviceRole.INVERTER,
+    )
+    assert_entity(
+        register(MODEL_123, "OutPFSet_RmpTms"),
+        EntityPlatform.NUMBER,
         EntityCategoryHint.CONFIG,
         False,
         PhysicalDeviceRole.INVERTER,

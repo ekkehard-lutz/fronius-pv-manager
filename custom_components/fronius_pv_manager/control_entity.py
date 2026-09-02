@@ -96,6 +96,31 @@ def current_control_value(
     return None if value is None else value.value
 
 
+def current_control_raw_value(
+    coordinator: FroniusPVCoordinator, source: ControlEntitySource
+):
+    """Return the latest confirmed raw value for one fixed source."""
+    device = next(
+        (
+            item
+            for item in coordinator.data.devices
+            if item.device_id == source.device_id
+        ),
+        None,
+    )
+    if device is None:
+        return None
+    matching = [
+        snapshot
+        for snapshot in device.decoded_models
+        if snapshot.discovered.model_id == source.model_id
+    ]
+    if source.model_occurrence >= len(matching):
+        return None
+    value = matching[source.model_occurrence].decoded.fixed.get(source.register_name)
+    return None if value is None else value.raw
+
+
 def suggested_control_object_id(source: ControlEntitySource) -> str:
     """Return one stable language-independent low-level object ID."""
     return suggested_object_id(source.entity)

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from custom_components.fronius_pv_manager.write_policy_loader import (
     DEFAULT_POLICY_PATH,
@@ -18,23 +19,36 @@ def policy_yaml(body: str, *, model_id: int = 124) -> str:
 
 
 def test_shipped_default_contains_exact_intended_approvals() -> None:
-    """The package default contains only its two reviewed storage controls."""
+    """The package default lists every writable register explicitly."""
     policies = load_write_policy_text(DEFAULT_POLICY_PATH.read_text(encoding="utf-8"))
 
-    assert tuple(policies) == (
-        (124, "MinRsvPct"),
-        (124, "ChaGriSet"),
+    assert len(policies) == 25
+    assert sum(model_id == 123 for model_id, _ in policies) == 18
+    assert sum(model_id == 124 for model_id, _ in policies) == 7
+    assert {
+        coordinate for coordinate, policy in policies.items() if policy.enabled
+    } == {(124, "MinRsvPct"), (124, "ChaGriSet")}
+    assert all(
+        policy.minimum is None
+        and policy.maximum is None
+        and policy.step is None
+        and policy.allowed_enum_values is None
+        and policy.allowed_bit_mask is None
+        for policy in policies.values()
     )
     reserve = policies[(124, "MinRsvPct")]
-    assert reserve.minimum == 0
-    assert reserve.maximum == 100
     assert reserve.enabled
-    assert reserve.allowed_enum_values is None
     charging_source = policies[(124, "ChaGriSet")]
-    assert charging_source.minimum is None
-    assert charging_source.maximum is None
-    assert charging_source.allowed_enum_values == frozenset({0, 1})
     assert charging_source.enabled
+    document = yaml.safe_load(DEFAULT_POLICY_PATH.read_text(encoding="utf-8"))
+    entries = [
+        settings
+        for registers in document["models"].values()
+        for settings in registers.values()
+    ]
+    assert all(set(settings) == {"enabled"} for settings in entries)
+    assert not document["models"][123]["WMaxLimPct_RmpTms"]["enabled"]
+    assert not document["models"][124]["VAChaMax"]["enabled"]
 
 
 def test_first_load_creates_installation_policy_from_default(tmp_path: Path) -> None:
@@ -45,10 +59,7 @@ def test_first_load_creates_installation_policy_from_default(tmp_path: Path) -> 
     assert path.read_text(encoding="utf-8") == DEFAULT_POLICY_PATH.read_text(
         encoding="utf-8"
     )
-    assert tuple(policies) == (
-        (124, "MinRsvPct"),
-        (124, "ChaGriSet"),
-    )
+    assert len(policies) == 25
 
 
 def test_existing_policy_is_not_overwritten_and_reload_rereads_it(
@@ -112,9 +123,9 @@ def test_disabled_policy_still_undergoes_semantic_validation() -> None:
     with pytest.raises(WritePolicyLoadError, match="broadens"):
         load_write_policy_text(
             policy_yaml(
-                "    MinRsvPct:\n"
+                "    OutWRte:\n"
                 "      enabled: false\n"
-                "      minimum: -1\n"
+                "      minimum: -101\n"
                 "      maximum: 20\n"
             )
         )
@@ -127,7 +138,7 @@ def test_disabled_policy_still_undergoes_semantic_validation() -> None:
 def test_minimum_reserve_policy_can_match_or_narrow_hard_range(
     minimum: int, maximum: int
 ) -> None:
-    """Installation bounds may match or narrow the authoritative 0..100 range."""
+    """Installation bounds may match or narrow the authoritative hard range."""
     policies = load_write_policy_text(
         policy_yaml(
             "    MinRsvPct:\n"
@@ -141,13 +152,15 @@ def test_minimum_reserve_policy_can_match_or_narrow_hard_range(
 
 @pytest.mark.parametrize(
     "minimum, maximum, message",
-    [(-1, 100, "broadens the register minimum"),
-     (0, 101, "broadens the register maximum")],
+    [
+        (-1, 100, "broadens the register minimum"),
+        (0, 101, "broadens the register maximum"),
+    ],
 )
 def test_minimum_reserve_policy_cannot_broaden_hard_range(
     minimum: int, maximum: int, message: str
 ) -> None:
-    """Installation policy cannot exceed MinRsvPct manufacturer constraints."""
+    """Installation policy cannot exceed MinRsvPct hard bounds."""
     with pytest.raises(WritePolicyLoadError, match=message):
         load_write_policy_text(
             policy_yaml(

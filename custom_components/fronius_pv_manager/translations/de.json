@@ -670,13 +670,37 @@
       "model_123_varpct_wintms": {"name": "Register Zeitfenster der Blindleistung"},
       "model_123_varpct_rvrttms": {"name": "Register Rückfallzeit der Blindleistung"},
       "model_123_varpct_rmptms": {"name": "Register Rampenzeit der Blindleistung"},
-      "model_124_vachamax": {"name": "Register maximale Lade-Scheinleistung"},
       "model_124_minrsvpct": {"name": "Register Mindestspeicherreserve"},
       "model_124_outwrte": {"name": "Register maximale Entladerate"},
       "model_124_inwrte": {"name": "Register maximale Laderate"},
       "model_124_inoutwrte_rvrttms": {"name": "Register Rückfallzeit für Laden und Entladen"}
     },
     "select": {
+      "model_123_conn": {
+        "name": "Register Verbindungssteuerung",
+        "state": {"0": "Getrennt", "1": "Verbunden"}
+      },
+      "model_123_wmaxlim_ena": {
+        "name": "Register Leistungsbegrenzung aktivieren",
+        "state": {"0": "Deaktiviert", "1": "Aktiviert"}
+      },
+      "model_123_outpfset_ena": {
+        "name": "Register Leistungsfaktorsteuerung aktivieren",
+        "state": {"0": "Deaktiviert", "1": "Aktiviert"}
+      },
+      "model_123_varpct_ena": {
+        "name": "Register Blindleistungssteuerung aktivieren",
+        "state": {"0": "Deaktiviert", "1": "Aktiviert"}
+      },
+      "model_124_storctl_mod": {
+        "name": "Register Speichersteuerungsmodus",
+        "state": {
+          "0": "Halten",
+          "1": "Laden aktiviert",
+          "2": "Entladen aktiviert",
+          "3": "Laden und Entladen aktiviert"
+        }
+      },
       "model_124_chagriset": {
         "name": "Register Netzladung",
         "state": {

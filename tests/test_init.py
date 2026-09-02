@@ -70,10 +70,12 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     assert hass.config_entries.forwarded == [
         (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
     ]
-    assert tuple(entry.runtime_data.write_policies) == (
-        (124, "MinRsvPct"),
-        (124, "ChaGriSet"),
-    )
+    assert len(entry.runtime_data.write_policies) == 25
+    assert {
+        coordinate
+        for coordinate, policy in entry.runtime_data.write_policies.items()
+        if policy.enabled
+    } == {(124, "MinRsvPct"), (124, "ChaGriSet")}
 
 
 @pytest.mark.asyncio
@@ -113,11 +115,11 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     await sensor_module.async_setup_entry(
         hass, entry, lambda items: sensors.extend(items)
     )
-    assert any(
-        entity._source.register_name == "MinRsvPct" for entity in numbers
-    )
-    assert len(selects) == 1
-    assert selects[0]._source.register_name == "ChaGriSet"
+    assert any(entity._source.register_name == "OutWRte" for entity in numbers)
+    assert {entity._source.register_name for entity in selects} == {
+        "StorCtl_Mod",
+        "ChaGriSet",
+    }
     assert sensors
 
 

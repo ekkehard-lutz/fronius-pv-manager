@@ -39,7 +39,7 @@ _GEN24_PAYLOAD = [
 _EXPECTED_LAYOUT = (
     ("Conn_WinTms", 0, RegisterDataType.UINT16),
     ("Conn_RvrtTms", 1, RegisterDataType.UINT16),
-    ("Conn", 2, RegisterDataType.BITFIELD16),
+    ("Conn", 2, RegisterDataType.ENUM16),
     ("WMaxLimPct", 3, RegisterDataType.UINT16),
     ("WMaxLimPct_WinTms", 4, RegisterDataType.UINT16),
     ("WMaxLimPct_RvrtTms", 5, RegisterDataType.UINT16),
@@ -64,7 +64,6 @@ _EXPECTED_LAYOUT = (
 )
 
 _READ_ONLY_NAMES = {
-    "WMaxLimPct_RmpTms",
     "VArWMaxPct",
     "VArAvalPct",
     "VArPct_Mod",
@@ -96,8 +95,8 @@ def test_model_123_structure_and_access_match_worksheet() -> None:
         if register.access is RegisterAccess.READ_WRITE
     }
     assert read_only == _READ_ONLY_NAMES
-    assert len(read_only) == 7
-    assert len(read_write) == 17
+    assert len(read_only) == 6
+    assert len(read_write) == 18
 
 
 def test_model_123_layout_has_no_gaps_or_overlaps() -> None:
@@ -112,7 +111,7 @@ def test_model_123_layout_has_no_gaps_or_overlaps() -> None:
 
 
 def test_model_123_valid_ranges_match_worksheet() -> None:
-    """Only worksheet timing bounds are recorded as valid ranges."""
+    """All supplied authoritative hard ranges are recorded exactly."""
     registers = {register.name: register for register in MODEL_123.registers}
     ranges = {
         name: register.valid_range
@@ -121,12 +120,19 @@ def test_model_123_valid_ranges_match_worksheet() -> None:
     }
 
     assert ranges == {
+        "Conn_WinTms": ValueRange(minimum=0, maximum=300),
+        "Conn_RvrtTms": ValueRange(minimum=0, maximum=28800),
+        "WMaxLimPct": ValueRange(minimum=0, maximum=100),
         "WMaxLimPct_WinTms": ValueRange(minimum=0, maximum=300),
         "WMaxLimPct_RvrtTms": ValueRange(minimum=0, maximum=28800),
+        "WMaxLimPct_RmpTms": ValueRange(minimum=0, maximum=65534),
         "OutPFSet_WinTms": ValueRange(minimum=0, maximum=300),
         "OutPFSet_RvrtTms": ValueRange(minimum=0, maximum=28800),
+        "OutPFSet_RmpTms": ValueRange(minimum=0, maximum=65534),
+        "VArMaxPct": ValueRange(minimum=-100, maximum=100),
         "VArPct_WinTms": ValueRange(minimum=0, maximum=300),
         "VArPct_RvrtTms": ValueRange(minimum=0, maximum=28800),
+        "VArPct_RmpTms": ValueRange(minimum=0, maximum=65534),
     }
 
 
@@ -190,7 +196,7 @@ def test_model_123_enum_and_bitfield_metadata() -> None:
     """Worksheet connection and control meanings remain available."""
     registers = {register.name: register for register in MODEL_123.registers}
 
-    assert registers["Conn"].bitfield == {0x0001: "Connected"}
+    assert registers["Conn"].enum == {0: "Disconnected", 1: "Connected"}
     assert registers["WMaxLim_Ena"].enum == {0: "Disabled", 1: "Enabled"}
     assert registers["OutPFSet_Ena"].enum == {0: "Disabled", 1: "Enabled"}
     assert registers["VArPct_Mod"].enum == {

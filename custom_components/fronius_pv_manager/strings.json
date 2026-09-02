@@ -670,13 +670,37 @@
       "model_123_varpct_wintms": {"name": "Register reactive-power time window"},
       "model_123_varpct_rvrttms": {"name": "Register reactive-power reversion timeout"},
       "model_123_varpct_rmptms": {"name": "Register reactive-power ramp time"},
-      "model_124_vachamax": {"name": "Register maximum charging apparent power"},
       "model_124_minrsvpct": {"name": "Register minimum storage reserve"},
       "model_124_outwrte": {"name": "Register maximum discharge rate"},
       "model_124_inwrte": {"name": "Register maximum charge rate"},
       "model_124_inoutwrte_rvrttms": {"name": "Register charge/discharge reversion timeout"}
     },
     "select": {
+      "model_123_conn": {
+        "name": "Register connection control",
+        "state": {"0": "Disconnected", "1": "Connected"}
+      },
+      "model_123_wmaxlim_ena": {
+        "name": "Register power-limit enable",
+        "state": {"0": "Disabled", "1": "Enabled"}
+      },
+      "model_123_outpfset_ena": {
+        "name": "Register power-factor enable",
+        "state": {"0": "Disabled", "1": "Enabled"}
+      },
+      "model_123_varpct_ena": {
+        "name": "Register reactive-power enable",
+        "state": {"0": "Disabled", "1": "Enabled"}
+      },
+      "model_124_storctl_mod": {
+        "name": "Register storage control mode",
+        "state": {
+          "0": "Hold",
+          "1": "Charge enabled",
+          "2": "Discharge enabled",
+          "3": "Charge and discharge enabled"
+        }
+      },
       "model_124_chagriset": {
         "name": "Register grid charging",
         "state": {

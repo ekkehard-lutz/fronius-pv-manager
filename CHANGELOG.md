@@ -16,6 +16,57 @@ releases will use semantic versioning.
 - Unit tests for the core model.
 - CI-ready validation with Ruff and pytest.
 
+## [v0.2.0-beta.9] - 2026-09-02
+
+### Added
+
+- Completed the writable-register inventory for SunSpec Models 123 and 124:
+  18 writable Model 123 registers and 7 writable Model 124 registers.
+- The packaged default write policy now lists all 25 writable registers
+  explicitly. Only `MinRsvPct` and `ChaGriSet` remain enabled by default.
+- Added NUMBER and SELECT controls for safely representable GEN24 registers.
+  Low-level controls remain disabled by default in the Home Assistant Entity
+  Registry.
+- Represented `StorCtl_Mod` as one SELECT containing its documented bit
+  combinations.
+
+### Changed
+
+- `WMaxLimPct_RmpTms` retains general read-write register metadata but is
+  exposed as a read-only SENSOR on GEN24 because GEN24 treats it as read-only.
+- `MinRsvPct` uses the project-authoritative hard range of 0 through 100%.
+
+### Safety
+
+- `VAChaMax` remains defined but unexposed because it is currently unsupported
+  by GEN24 and has no authoritative finite semantic range.
+- `OutPFSet` remains unexposed because its valid domain consists of two dynamic,
+  nameplate-dependent intervals.
+- Existing write safety is unchanged: explicit policy permission, semantic
+  validation, exactly one physical write, verified readback, and
+  non-optimistic state remain required.
+
+### Validation
+
+- Ruff passed with all checks successful.
+- 566 tests passed with 1 warning.
+- `git diff --check` passed.
+
+## [v0.2.0-beta.8] - 2026-09-02
+
+### Changed
+
+- Added one shared persistent Modbus TCP endpoint and client per configured
+  host and port. Bound device-ID views share that endpoint.
+- Runtime polling and writes remain serialized through the shared endpoint.
+- Failed requests reset the endpoint so later requests can reconnect.
+- Multi-device partial recovery remains supported.
+
+### Safety
+
+- Uncertain writes are never retried automatically.
+- Verified readback remains required after writes.
+
 ## [v0.2.0-beta.7] - 2026-09-01
 
 ### Changed

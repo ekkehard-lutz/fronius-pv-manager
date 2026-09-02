@@ -695,10 +695,10 @@
       "model_124_storctl_mod": {
         "name": "Register storage control mode",
         "state": {
-          "0": "Hold",
-          "1": "Charge enabled",
-          "2": "Discharge enabled",
-          "3": "Charge and discharge enabled"
+          "0": "Automatic",
+          "1": "Charge limit active",
+          "2": "Discharge limit active",
+          "3": "Charge and discharge limits active"
         }
       },
       "model_124_chagriset": {

@@ -237,3 +237,36 @@ def test_select_option_translations_match_stable_keys_and_enum_semantics() -> No
     ] == german
     register = next(item for item in MODEL_124.registers if item.name == "ChaGriSet")
     assert register.enum == {0: PV_LABEL, 1: GRID_LABEL}
+
+
+def test_storage_limit_activation_translations_match_raw_combinations() -> None:
+    """StorCtl_Mod labels describe limit activation without changing raw keys."""
+    root = Path(__file__).parents[1] / "custom_components" / "fronius_pv_manager"
+    resources = {
+        language: json.loads((root / path).read_text(encoding="utf-8"))
+        for language, path in (
+            ("source", "strings.json"),
+            ("en", "translations/en.json"),
+            ("de", "translations/de.json"),
+        )
+    }
+    english = {
+        "0": "Automatic",
+        "1": "Charge limit active",
+        "2": "Discharge limit active",
+        "3": "Charge and discharge limits active",
+    }
+    german = {
+        "0": "Automatik",
+        "1": "Ladebegrenzung aktiv",
+        "2": "Entladebegrenzung aktiv",
+        "3": "Lade- und Entladebegrenzung aktiv",
+    }
+
+    for language in ("source", "en"):
+        assert resources[language]["entity"]["select"]["model_124_storctl_mod"][
+            "state"
+        ] == english
+    assert resources["de"]["entity"]["select"]["model_124_storctl_mod"][
+        "state"
+    ] == german

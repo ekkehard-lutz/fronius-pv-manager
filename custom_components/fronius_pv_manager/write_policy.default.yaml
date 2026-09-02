@@ -66,8 +66,11 @@ models:
 
   124:
     StorCtl_Mod:
-      # Storage mode. Type: bitfield16; bit 0 = CHARGE, bit 1 = DISCHARGE.
-      # Valid documented combinations are exposed by one SELECT control.
+      # Storage power-limit activation. Type: bitfield16.
+      # 0 = automatic; neither InWRte nor OutWRte limit is active.
+      # 1 = charge limit active; InWRte applies.
+      # 2 = discharge limit active; OutWRte applies.
+      # 3 = charge and discharge limits active; InWRte and OutWRte apply.
       enabled: false
     VAChaMax:
       # Maximum charging apparent-power setpoint. Type: uint16; unit: VA.

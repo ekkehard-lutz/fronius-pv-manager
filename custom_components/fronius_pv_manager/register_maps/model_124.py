@@ -95,7 +95,9 @@ _REGISTERS = (
         3,
         RegisterDataType.BITFIELD16,
         _RW,
-        description="Active charge and discharge storage-control limits.",
+        description=(
+            "Selects which external charge and discharge power limits are active."
+        ),
         bitfield={0x0001: "CHARGE", 0x0002: "DISCHARGE"},
         poll_class=PollClass.SLOW,
     ),

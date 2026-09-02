@@ -695,10 +695,10 @@
       "model_124_storctl_mod": {
         "name": "Register Speichersteuerungsmodus",
         "state": {
-          "0": "Halten",
-          "1": "Laden aktiviert",
-          "2": "Entladen aktiviert",
-          "3": "Laden und Entladen aktiviert"
+          "0": "Automatik",
+          "1": "Ladebegrenzung aktiv",
+          "2": "Entladebegrenzung aktiv",
+          "3": "Lade- und Entladebegrenzung aktiv"
         }
       },
       "model_124_chagriset": {

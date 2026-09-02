@@ -1,0 +1,713 @@
+{
+  "title": "Fronius PV Manager",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Fronius PV Manager",
+        "description": "Einen Fronius-Modbus-TCP-Endpunkt konfigurieren.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "device_ids": "Modbus-Geräte-IDs"
+        },
+        "data_description": {
+          "device_ids": "Kommagetrennte Modbus-Geräte-IDs, die erkannt werden sollen, zum Beispiel 1, 200."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Modbus-Endpunkt fehlgeschlagen.",
+      "invalid_host": "Einen Hostnamen oder eine IP-Adresse eingeben.",
+      "invalid_sunspec": "Ein konfiguriertes Gerät hat keine gültige SunSpec-Antwort geliefert.",
+      "invalid_device_ids": "Kommagetrennte Modbus-Geräte-IDs von 1 bis 247 ohne leere Einträge eingeben.",
+      "duplicate_device_ids": "Jede Modbus-Geräte-ID darf nur einmal eingegeben werden.",
+      "unknown": "Unerwarteter Fehler."
+    },
+    "abort": {
+      "already_configured": "Dieser Modbus-Endpunkt ist bereits konfiguriert."
+    }
+  },
+  "device": {
+    "inverter_device": {
+      "name": "Wechselrichter"
+    },
+    "inverter_device_with_id": {
+      "name": "Wechselrichter {device_id}"
+    },
+    "meter_device": {
+      "name": "Smart Meter"
+    },
+    "meter_device_with_id": {
+      "name": "Smart Meter {device_id}"
+    },
+    "storage_device": {
+      "name": "Speicher"
+    },
+    "storage_device_with_id": {
+      "name": "Speicher {device_id}"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "model_103_a": {
+        "name": "AC-Strom"
+      },
+      "model_103_apha": {
+        "name": "Strom Phase L1"
+      },
+      "model_103_aphb": {
+        "name": "Strom Phase L2"
+      },
+      "model_103_aphc": {
+        "name": "Strom Phase L3"
+      },
+      "model_103_dca": {
+        "name": "DC-Strom"
+      },
+      "model_103_dcv": {
+        "name": "DC-Spannung"
+      },
+      "model_103_dcw": {
+        "name": "DC-Leistung"
+      },
+      "model_103_evt1": {
+        "name": "SunSpec-Ereignisflags"
+      },
+      "model_103_evt2": {
+        "name": "Für zukünftige Verwendung reserviert"
+      },
+      "model_103_evtvnd1": {
+        "name": "Ereignisschweregrade für Benutzer"
+      },
+      "model_103_evtvnd2": {
+        "name": "Ereignisschweregrade für Techniker"
+      },
+      "model_103_evtvnd3": {
+        "name": "Herstellerspezifische Ereignisflags 3"
+      },
+      "model_103_evtvnd4": {
+        "name": "Herstellerspezifische Ereignisflags 4"
+      },
+      "model_103_hz": {
+        "name": "AC-Frequenz"
+      },
+      "model_103_pf": {
+        "name": "Leistungsfaktor"
+      },
+      "model_103_phvpha": {
+        "name": "Spannung L1-N"
+      },
+      "model_103_phvphb": {
+        "name": "Spannung L2-N"
+      },
+      "model_103_phvphc": {
+        "name": "Spannung L3-N"
+      },
+      "model_103_ppvphab": {
+        "name": "Spannung L1-L2"
+      },
+      "model_103_ppvphbc": {
+        "name": "Spannung L2-L3"
+      },
+      "model_103_ppvphca": {
+        "name": "Spannung L3-L1"
+      },
+      "model_103_st": {
+        "name": "Betriebszustand",
+        "state": {
+          "off": "Aus",
+          "sleeping": "Schlafmodus",
+          "starting": "Startet",
+          "mppt": "MPPT",
+          "throttled": "Leistungsbegrenzt",
+          "shutting_down": "Fährt herunter",
+          "fault": "Fehler",
+          "standby": "Bereitschaft"
+        }
+      },
+      "model_103_stvnd": {
+        "name": "Herstellerspezifischer Betriebszustand",
+        "state": {
+          "off": "Aus", "sleeping": "Schlafmodus", "starting": "Startet",
+          "mppt": "MPPT", "throttled": "Leistungsbegrenzt",
+          "shutting_down": "Fährt herunter", "fault": "Fehler", "standby": "Bereitschaft"
+        }
+      },
+      "model_103_tmpcab": {
+        "name": "Gehäusetemperatur"
+      },
+      "model_103_tmpot": {
+        "name": "Weitere Temperatur"
+      },
+      "model_103_tmpsnk": {
+        "name": "Kühlkörpertemperatur"
+      },
+      "model_103_tmptrns": {
+        "name": "Transformatortemperatur"
+      },
+      "model_103_va": {
+        "name": "Scheinleistung"
+      },
+      "model_103_var": {
+        "name": "Blindleistung"
+      },
+      "model_103_w": {
+        "name": "AC-Leistung"
+      },
+      "model_103_wh": {
+        "name": "AC-Energie"
+      },
+      "model_120_ahrrtg": {
+        "name": "Nutzbare Batteriekapazität"
+      },
+      "model_120_artg": {
+        "name": "Maximaler AC-RMS-Strom"
+      },
+      "model_120_dertyp": {
+        "name": "Typ der dezentralen Energieerzeugungsanlage",
+        "state": {"pv_stor": "PV und Speicher"}
+      },
+      "model_120_maxcharte": {
+        "name": "Maximale Energieübertragungsrate beim Laden"
+      },
+      "model_120_maxdischarte": {
+        "name": "Maximale Energieübertragungsrate beim Entladen"
+      },
+      "model_120_pfrtgq1": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 1"
+      },
+      "model_120_pfrtgq2": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 2"
+      },
+      "model_120_pfrtgq3": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 3"
+      },
+      "model_120_pfrtgq4": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 4"
+      },
+      "model_120_varrtgq1": {
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 1"
+      },
+      "model_120_varrtgq2": {
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 2"
+      },
+      "model_120_varrtgq3": {
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 3"
+      },
+      "model_120_varrtgq4": {
+        "name": "Dauerhafte Blindleistungsfähigkeit in Quadrant 4"
+      },
+      "model_120_vartg": {
+        "name": "Dauerhafte Scheinleistungsfähigkeit des Wechselrichters"
+      },
+      "model_120_whrtg": {
+        "name": "Nennkapazität des Speichers"
+      },
+      "model_120_wrtg": {
+        "name": "Dauerhafte Wirkleistungsfähigkeit des Wechselrichters"
+      },
+      "model_121_clctotva": {
+        "name": "Berechnung der Gesamtscheinleistung",
+        "state": {"vector": "Vektoriell", "arithmetic": "Arithmetisch"}
+      },
+      "model_121_connph": {
+        "name": "Angeschlossene Phase bei einphasigem Betrieb",
+        "state": {"a": "A", "b": "B", "c": "C"}
+      },
+      "model_121_ecpnomhz": {
+        "name": "Nennfrequenz am ECP"
+      },
+      "model_121_maxrmprte": {
+        "name": "Maximale Rampenrate"
+      },
+      "model_121_pfminq1": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 1"
+      },
+      "model_121_pfminq2": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 2"
+      },
+      "model_121_pfminq3": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 3"
+      },
+      "model_121_pfminq4": {
+        "name": "Minimaler Leistungsfaktor in Quadrant 4"
+      },
+      "model_121_vamax": {
+        "name": "Maximaler Scheinleistungs-Sollwert"
+      },
+      "model_121_varact": {
+        "name": "Blindleistungsaktion",
+        "state": {
+          "switch": "Umschalten",
+          "maintain_var_characterization": "VAR-Kennlinie beibehalten"
+        }
+      },
+      "model_121_varmaxq1": {
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 1"
+      },
+      "model_121_varmaxq2": {
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 2"
+      },
+      "model_121_varmaxq3": {
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 3"
+      },
+      "model_121_varmaxq4": {
+        "name": "Maximaler Blindleistungs-Sollwert in Quadrant 4"
+      },
+      "model_121_vmax": {
+        "name": "Maximaler Spannungssollwert"
+      },
+      "model_121_vmin": {
+        "name": "Minimaler Spannungssollwert"
+      },
+      "model_121_vref": {
+        "name": "Spannung am Netzanschlusspunkt"
+      },
+      "model_121_vrefofs": {
+        "name": "Spannungsversatz zum Netzanschlusspunkt"
+      },
+      "model_121_wgra": {
+        "name": "Standard-Wirkleistungsrampe"
+      },
+      "model_121_wmax": {
+        "name": "Maximaler Wirkleistungs-Sollwert"
+      },
+      "model_122_actvah": {
+        "name": "AC-Scheinenergie gesamt"
+      },
+      "model_122_actvarhq1": {
+        "name": "AC-Blindenergie gesamt in Quadrant 1"
+      },
+      "model_122_actvarhq2": {
+        "name": "AC-Blindenergie gesamt in Quadrant 2"
+      },
+      "model_122_actvarhq3": {
+        "name": "AC-Blindenergie gesamt in Quadrant 3"
+      },
+      "model_122_actvarhq4": {
+        "name": "AC-Blindenergie gesamt in Quadrant 4"
+      },
+      "model_122_actwh": {
+        "name": "AC-Wirkenergie gesamt"
+      },
+      "model_122_ecpconn": {
+        "name": "Status des Netzanschlusspunkts"
+      },
+      "model_122_pvconn": {
+        "name": "PV-Wechselrichterstatus"
+      },
+      "model_122_ris": {
+        "name": "Isolationswiderstand"
+      },
+      "model_122_rtst": {
+        "name": "Aktiver Ride-Through-Status"
+      },
+      "model_122_stactctl": {
+        "name": "Aktive Wechselrichterregelungen"
+      },
+      "model_122_storconn": {
+        "name": "Speicherwechselrichterstatus"
+      },
+      "model_122_stsetlimmsk": {
+        "name": "Status der Sollwertbegrenzung"
+      },
+      "model_122_tms": {
+        "name": "Sekunden seit 01.01.2000 00:00 UTC"
+      },
+      "model_122_tmsrc": {
+        "name": "Quelle der Zeitsynchronisierung"
+      },
+      "model_122_varaval": {
+        "name": "Verfügbare Blindleistung"
+      },
+      "model_122_waval": {
+        "name": "Verfügbare Wirkleistung"
+      },
+      "model_123_varavalpct": {
+        "name": "Blindleistung in Prozent von VArAval"
+      },
+      "model_123_varpct_mod": {
+        "name": "VAR-Begrenzungsmodus",
+        "state": {
+          "var_limit_as_a_percent_of_varmax": "VAR-Begrenzung als Prozentsatz von VArMax"
+        }
+      },
+      "model_123_varwmaxpct": {
+        "name": "Blindleistung in Prozent von WMax"
+      },
+      "model_123_wmaxlimpct_rmptms": {
+        "name": "Rampenzeit der Wirkleistungsbegrenzung"
+      },
+      "model_124_chast": {
+        "name": "Speicher-Ladestatus",
+        "state": {
+          "off": "Aus", "empty": "Leer", "discharging": "Entlädt",
+          "charging": "Lädt", "full": "Voll", "holding": "Holding",
+          "testing": "Testbetrieb"
+        }
+      },
+      "model_124_chastate": {
+        "name": "Ladezustand"
+      },
+      "model_124_inbatv": {
+        "name": "Interne Batteriespannung"
+      },
+      "model_124_storaval": {
+        "name": "Verfügbarer Speicher oberhalb der Reserve"
+      },
+      "model_124_wchagra": {
+        "name": "Maximale Laderampe"
+      },
+      "model_124_wchamax": {
+        "name": "Maximale Speicher-Ladeleistung"
+      },
+      "model_124_wdischagra": {
+        "name": "Maximale Entladerampe"
+      },
+      "model_160_evt": {
+        "name": "Ereignisflags"
+      },
+      "model_160_module_dca": {
+        "name": "DC-Strom"
+      },
+      "model_160_module_dcevt": {
+        "name": "DC-Ereignisflags"
+      },
+      "model_160_module_dcst": {
+        "name": "Betriebszustand"
+      },
+      "model_160_module_dcv": {
+        "name": "DC-Spannung"
+      },
+      "model_160_module_dcw": {
+        "name": "DC-Leistung"
+      },
+      "model_160_module_dcwh": {
+        "name": "DC-Energie gesamt"
+      },
+      "model_160_module_tmp": {
+        "name": "Temperatur"
+      },
+      "model_160_module_tms": {
+        "name": "Zeitstempel"
+      },
+      "model_160_mppt_dca": {
+        "name": "MPPT {number} Strom"
+      },
+      "model_160_mppt_dcevt": {
+        "name": "MPPT {number} Ereignisflags"
+      },
+      "model_160_mppt_dcst": {
+        "name": "MPPT {number} Betriebszustand"
+      },
+      "model_160_mppt_dcv": {
+        "name": "MPPT {number} Spannung"
+      },
+      "model_160_mppt_dcw": {
+        "name": "MPPT {number} Leistung"
+      },
+      "model_160_mppt_dcwh": {
+        "name": "MPPT {number} Energie gesamt"
+      },
+      "model_160_mppt_tmp": {
+        "name": "MPPT {number} Temperatur"
+      },
+      "model_160_mppt_tms": {
+        "name": "MPPT {number} Zeitstempel"
+      },
+      "model_160_n": {
+        "name": "Anzahl der Module"
+      },
+      "model_160_storage_charging_dca": {
+        "name": "Speicher-Ladestrom"
+      },
+      "model_160_storage_charging_dcevt": {
+        "name": "Speicher-Ladeereignisflags"
+      },
+      "model_160_storage_charging_dcst": {
+        "name": "Speicher-Ladebetriebszustand"
+      },
+      "model_160_storage_charging_dcv": {
+        "name": "Speicher-Ladespannung"
+      },
+      "model_160_storage_charging_dcw": {
+        "name": "Speicher-Ladeleistung"
+      },
+      "model_160_storage_charging_dcwh": {
+        "name": "Speicher-Ladeenergie gesamt"
+      },
+      "model_160_storage_charging_tmp": {
+        "name": "Speicher-Ladetemperatur"
+      },
+      "model_160_storage_charging_tms": {
+        "name": "Speicher-Ladezeitstempel"
+      },
+      "model_160_storage_discharging_dca": {
+        "name": "Speicher-Entladestrom"
+      },
+      "model_160_storage_discharging_dcevt": {
+        "name": "Speicher-Entladeereignisflags"
+      },
+      "model_160_storage_discharging_dcst": {
+        "name": "Speicher-Entladebetriebszustand"
+      },
+      "model_160_storage_discharging_dcv": {
+        "name": "Speicher-Entladespannung"
+      },
+      "model_160_storage_discharging_dcw": {
+        "name": "Speicher-Entladeleistung"
+      },
+      "model_160_storage_discharging_dcwh": {
+        "name": "Speicher-Entladeenergie gesamt"
+      },
+      "model_160_storage_discharging_tmp": {
+        "name": "Speicher-Entladetemperatur"
+      },
+      "model_160_storage_discharging_tms": {
+        "name": "Speicher-Entladezeitstempel"
+      },
+      "model_160_tmsper": {
+        "name": "Zeitstempelintervall"
+      },
+      "model_203_a": {
+        "name": "AC-Strom"
+      },
+      "model_203_apha": {
+        "name": "Strom Phase L1"
+      },
+      "model_203_aphb": {
+        "name": "Strom Phase L2"
+      },
+      "model_203_aphc": {
+        "name": "Strom Phase L3"
+      },
+      "model_203_evt": {
+        "name": "Smart-Meter-Ereignisflags"
+      },
+      "model_203_hz": {
+        "name": "AC-Frequenz"
+      },
+      "model_203_pf": {
+        "name": "Gesamtleistungsfaktor"
+      },
+      "model_203_pfpha": {
+        "name": "Leistungsfaktor Phase L1"
+      },
+      "model_203_pfphb": {
+        "name": "Leistungsfaktor Phase L2"
+      },
+      "model_203_pfphc": {
+        "name": "Leistungsfaktor Phase L3"
+      },
+      "model_203_phv": {
+        "name": "Mittlere Spannung L-N"
+      },
+      "model_203_phvpha": {
+        "name": "Spannung L1-N"
+      },
+      "model_203_phvphab": {
+        "name": "Spannung L1-L2"
+      },
+      "model_203_phvphb": {
+        "name": "Spannung L2-N"
+      },
+      "model_203_phvphbc": {
+        "name": "Spannung L2-L3"
+      },
+      "model_203_phvphc": {
+        "name": "Spannung L3-N"
+      },
+      "model_203_phvphca": {
+        "name": "Spannung L3-L1"
+      },
+      "model_203_ppv": {
+        "name": "Mittlere Spannung L-L"
+      },
+      "model_203_totvahexp": {
+        "name": "Eingespeiste Scheinenergie gesamt"
+      },
+      "model_203_totvahexppha": {
+        "name": "Eingespeiste Scheinenergie Phase L1"
+      },
+      "model_203_totvahexpphb": {
+        "name": "Eingespeiste Scheinenergie Phase L2"
+      },
+      "model_203_totvahexpphc": {
+        "name": "Eingespeiste Scheinenergie Phase L3"
+      },
+      "model_203_totvahimp": {
+        "name": "Bezogene Scheinenergie gesamt"
+      },
+      "model_203_totvahimppha": {
+        "name": "Bezogene Scheinenergie Phase L1"
+      },
+      "model_203_totvahimpphb": {
+        "name": "Bezogene Scheinenergie Phase L2"
+      },
+      "model_203_totvahimpphc": {
+        "name": "Bezogene Scheinenergie Phase L3"
+      },
+      "model_203_totvarhexpq3": {
+        "name": "Eingespeiste Blindenergie gesamt in Quadrant 3"
+      },
+      "model_203_totvarhexpq3pha": {
+        "name": "Eingespeiste Blindenergie Phase L1 in Quadrant 3"
+      },
+      "model_203_totvarhexpq3phb": {
+        "name": "Eingespeiste Blindenergie Phase L2 in Quadrant 3"
+      },
+      "model_203_totvarhexpq3phc": {
+        "name": "Eingespeiste Blindenergie Phase L3 in Quadrant 3"
+      },
+      "model_203_totvarhexpq4": {
+        "name": "Eingespeiste Blindenergie gesamt in Quadrant 4"
+      },
+      "model_203_totvarhexpq4pha": {
+        "name": "Eingespeiste Blindenergie Phase L1 in Quadrant 4"
+      },
+      "model_203_totvarhexpq4phb": {
+        "name": "Eingespeiste Blindenergie Phase L2 in Quadrant 4"
+      },
+      "model_203_totvarhexpq4phc": {
+        "name": "Eingespeiste Blindenergie Phase L3 in Quadrant 4"
+      },
+      "model_203_totvarhimpq1": {
+        "name": "Bezogene Blindenergie gesamt in Quadrant 1"
+      },
+      "model_203_totvarhimpq1pha": {
+        "name": "Bezogene Blindenergie Phase L1 in Quadrant 1"
+      },
+      "model_203_totvarhimpq1phb": {
+        "name": "Bezogene Blindenergie Phase L2 in Quadrant 1"
+      },
+      "model_203_totvarhimpq1phc": {
+        "name": "Bezogene Blindenergie Phase L3 in Quadrant 1"
+      },
+      "model_203_totvarhimpq2": {
+        "name": "Bezogene Blindenergie gesamt in Quadrant 2"
+      },
+      "model_203_totvarhimpq2pha": {
+        "name": "Bezogene Blindenergie Phase L1 in Quadrant 2"
+      },
+      "model_203_totvarhimpq2phb": {
+        "name": "Bezogene Blindenergie Phase L2 in Quadrant 2"
+      },
+      "model_203_totvarhimpq2phc": {
+        "name": "Bezogene Blindenergie Phase L3 in Quadrant 2"
+      },
+      "model_203_totwhexp": {
+        "name": "Eingespeiste Energie"
+      },
+      "model_203_totwhexppha": {
+        "name": "Eingespeiste Wirkenergie Phase L1"
+      },
+      "model_203_totwhexpphb": {
+        "name": "Eingespeiste Wirkenergie Phase L2"
+      },
+      "model_203_totwhexpphc": {
+        "name": "Eingespeiste Wirkenergie Phase L3"
+      },
+      "model_203_totwhimp": {
+        "name": "Bezogene Energie"
+      },
+      "model_203_totwhimppha": {
+        "name": "Bezogene Wirkenergie Phase L1"
+      },
+      "model_203_totwhimpphb": {
+        "name": "Bezogene Wirkenergie Phase L2"
+      },
+      "model_203_totwhimpphc": {
+        "name": "Bezogene Wirkenergie Phase L3"
+      },
+      "model_203_va": {
+        "name": "Gesamtscheinleistung"
+      },
+      "model_203_vapha": {
+        "name": "Scheinleistung Phase L1"
+      },
+      "model_203_vaphb": {
+        "name": "Scheinleistung Phase L2"
+      },
+      "model_203_vaphc": {
+        "name": "Scheinleistung Phase L3"
+      },
+      "model_203_var": {
+        "name": "Gesamtblindleistung"
+      },
+      "model_203_varpha": {
+        "name": "Blindleistung Phase L1"
+      },
+      "model_203_varphb": {
+        "name": "Blindleistung Phase L2"
+      },
+      "model_203_varphc": {
+        "name": "Blindleistung Phase L3"
+      },
+      "model_203_w": {
+        "name": "AC-Leistung"
+      },
+      "model_203_wpha": {
+        "name": "AC-Leistung Phase L1"
+      },
+      "model_203_wphb": {
+        "name": "AC-Leistung Phase L2"
+      },
+      "model_203_wphc": {
+        "name": "AC-Leistung Phase L3"
+      }
+    },
+    "number": {
+      "model_123_conn_wintms": {"name": "Register Zeitfenster für die Verbindung"},
+      "model_123_conn_rvrttms": {"name": "Register Rückfallzeit für die Verbindung"},
+      "model_123_wmaxlimpct": {"name": "Register maximale Ausgangsleistung"},
+      "model_123_wmaxlimpct_wintms": {"name": "Register Zeitfenster der Leistungsbegrenzung"},
+      "model_123_wmaxlimpct_rvrttms": {"name": "Register Rückfallzeit der Leistungsbegrenzung"},
+      "model_123_outpfset": {"name": "Register Leistungsfaktor-Sollwert"},
+      "model_123_outpfset_wintms": {"name": "Register Zeitfenster des Leistungsfaktors"},
+      "model_123_outpfset_rvrttms": {"name": "Register Rückfallzeit des Leistungsfaktors"},
+      "model_123_outpfset_rmptms": {"name": "Register Rampenzeit des Leistungsfaktors"},
+      "model_123_varmaxpct": {"name": "Register Blindleistungsgrenze"},
+      "model_123_varpct_wintms": {"name": "Register Zeitfenster der Blindleistung"},
+      "model_123_varpct_rvrttms": {"name": "Register Rückfallzeit der Blindleistung"},
+      "model_123_varpct_rmptms": {"name": "Register Rampenzeit der Blindleistung"},
+      "model_124_minrsvpct": {"name": "Register Mindestspeicherreserve"},
+      "model_124_outwrte": {"name": "Register maximale Entladerate"},
+      "model_124_inwrte": {"name": "Register maximale Laderate"},
+      "model_124_inoutwrte_rvrttms": {"name": "Register Rückfallzeit für Laden und Entladen"}
+    },
+    "select": {
+      "model_123_conn": {
+        "name": "Register Verbindungssteuerung",
+        "state": {"0": "Getrennt", "1": "Verbunden"}
+      },
+      "model_123_wmaxlim_ena": {
+        "name": "Register Leistungsbegrenzung aktivieren",
+        "state": {"0": "Deaktiviert", "1": "Aktiviert"}
+      },
+      "model_123_outpfset_ena": {
+        "name": "Register Leistungsfaktorsteuerung aktivieren",
+        "state": {"0": "Deaktiviert", "1": "Aktiviert"}
+      },
+      "model_123_varpct_ena": {
+        "name": "Register Blindleistungssteuerung aktivieren",
+        "state": {"0": "Deaktiviert", "1": "Aktiviert"}
+      },
+      "model_124_storctl_mod": {
+        "name": "Register Speichersteuerungsmodus",
+        "state": {
+          "0": "Automatik",
+          "1": "Ladebegrenzung aktiv",
+          "2": "Entladebegrenzung aktiv",
+          "3": "Lade- und Entladebegrenzung aktiv"
+        }
+      },
+      "model_124_chagriset": {
+        "name": "Register Netzladung",
+        "state": {
+          "0": "PV (Netzladung deaktiviert)",
+          "1": "GRID (Netzladung aktiviert)"
+        }
+      }
+    }
+  }
+}

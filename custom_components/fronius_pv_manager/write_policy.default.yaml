@@ -1,0 +1,101 @@
+version: 1
+
+models:
+  123:
+    Conn_WinTms:
+      # Connection time window. Type: uint16; unit: s; hard range: 0 .. 300.
+      enabled: false
+    Conn_RvrtTms:
+      # Connection timeout. Type: uint16; unit: s; hard range: 0 .. 28800.
+      enabled: false
+    Conn:
+      # Connection control. Type: enum16; 0 = Disconnected, 1 = Connected.
+      enabled: false
+    WMaxLimPct:
+      # Power-output limit. Type: uint16; unit: % WMax; scale: WMaxLimPct_SF.
+      # Hard range: 0 .. 100 percent.
+      enabled: false
+    WMaxLimPct_WinTms:
+      # Power-limit time window. Type: uint16; unit: s; hard range: 0 .. 300.
+      enabled: false
+    WMaxLimPct_RvrtTms:
+      # Power-limit timeout. Type: uint16; unit: s; hard range: 0 .. 28800.
+      enabled: false
+    WMaxLimPct_RmpTms:
+      # Ramp time for moving from the current power-limit setpoint to the new setpoint.
+      # Type: uint16; unit: s; register-map range: 0 .. 65534.
+      # Fronius GEN24 currently treats this register as read-only.
+      # Writes may be ignored without returning a Modbus exception.
+      enabled: false
+    WMaxLim_Ena:
+      # Power-limit enable. Type: enum16; 0 = Disabled, 1 = Enabled.
+      enabled: false
+    OutPFSet:
+      # Power-factor setpoint. Type: int16; unit: cos(); scale: OutPFSet_SF.
+      # The hard domain is two nameplate-dependent intervals, not one range.
+      # It is currently not exposed as a Home Assistant NUMBER control.
+      enabled: false
+    OutPFSet_WinTms:
+      # Power-factor time window. Type: uint16; unit: s; hard range: 0 .. 300.
+      enabled: false
+    OutPFSet_RvrtTms:
+      # Power-factor timeout. Type: uint16; unit: s; hard range: 0 .. 28800.
+      enabled: false
+    OutPFSet_RmpTms:
+      # Power-factor ramp time. Type: uint16; unit: s; hard range: 0 .. 65534.
+      enabled: false
+    OutPFSet_Ena:
+      # Fixed power-factor enable. Type: enum16; 0 = Disabled, 1 = Enabled.
+      enabled: false
+    VArMaxPct:
+      # Reactive-power limit. Type: int16; unit: % VArMax; scale: VArPct_SF.
+      # Hard range: -100 .. 100 percent.
+      enabled: false
+    VArPct_WinTms:
+      # Reactive-power time window. Type: uint16; unit: s; hard range: 0 .. 300.
+      enabled: false
+    VArPct_RvrtTms:
+      # Reactive-power timeout. Type: uint16; unit: s; hard range: 0 .. 28800.
+      enabled: false
+    VArPct_RmpTms:
+      # Reactive-power ramp time. Type: uint16; unit: s; hard range: 0 .. 65534.
+      enabled: false
+    VArPct_Ena:
+      # Fixed reactive-power enable. Type: enum16; 0 = Disabled, 1 = Enabled.
+      enabled: false
+
+  124:
+    StorCtl_Mod:
+      # Storage power-limit activation. Type: bitfield16.
+      # 0 = automatic; neither InWRte nor OutWRte limit is active.
+      # 1 = charge limit active; InWRte applies.
+      # 2 = discharge limit active; OutWRte applies.
+      # 3 = charge and discharge limits active; InWRte and OutWRte apply.
+      enabled: false
+    VAChaMax:
+      # Maximum charging apparent-power setpoint. Type: uint16; unit: VA.
+      # Scale factor: VAChaMax_SF. No semantic hard range is documented.
+      # Currently not supported by Fronius GEN24.
+      # No Home Assistant writable control is exposed.
+      enabled: false
+    MinRsvPct:
+      # Minimum storage reserve. Type: uint16; unit: % WChaMax.
+      # Scale: MinRsvPct_SF. Hard range: 0 .. 100 %.
+      enabled: true
+    OutWRte:
+      # Maximum discharge rate. Type: int16; unit: % WChaMax.
+      # Scale: InOutWRte_SF; hard range: -100 .. 100 percent.
+      # Fronius rejects invalid charge/discharge power windows with exception 3.
+      enabled: false
+    InWRte:
+      # Maximum charge rate. Type: int16; unit: % WChaMax.
+      # Scale: InOutWRte_SF; hard range: -100 .. 100 percent.
+      # Fronius rejects invalid charge/discharge power windows with exception 3.
+      enabled: false
+    InOutWRte_RvrtTms:
+      # Charge/discharge timeout. Type: uint16; unit: s; hard range: 0 .. 28800.
+      enabled: false
+    ChaGriSet:
+      # Grid-charging control. Type: enum16.
+      # 0 = PV (grid charging disabled), 1 = GRID (grid charging enabled).
+      enabled: true

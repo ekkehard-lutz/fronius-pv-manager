@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from types import MappingProxyType
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
@@ -17,7 +17,6 @@ from .const import (
     DEFAULT_UNIT_ID,
 )
 from .coordinator import FroniusPVCoordinator
-from .sunspec import SunSpecDiscoveryError
 from .transport import ModbusTcpEndpointTransport, ModbusTransportError
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
@@ -40,10 +39,8 @@ def _configured_device_ids(entry: FroniusPVConfigEntry) -> tuple[int, ...]:
     return device_ids
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: FroniusPVConfigEntry
-) -> bool:
-    """Connect, discover once, and perform the first coordinator refresh."""
+async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -> bool:
+    """Construct runtime even when every configured device is offline."""
     try:
         policy_path, write_policies = await hass.async_add_executor_job(
             load_or_create_write_policy,
@@ -66,22 +63,10 @@ async def async_setup_entry(
         for device_id in _configured_device_ids(entry)
     }
     coordinator = FroniusPVCoordinator(hass, entry, transports, write_policies)
-    try:
-        await coordinator.async_discover()
-        await coordinator.async_config_entry_first_refresh()
-    except (ModbusTransportError, SunSpecDiscoveryError, ConfigEntryNotReady) as err:
-        try:
-            await coordinator.async_close()
-        except ModbusTransportError:
-            _LOGGER.debug(
-                "Failed to close transport after setup failure", exc_info=True
-            )
-        if isinstance(err, ConfigEntryNotReady):
-            raise
-        raise ConfigEntryNotReady("Fronius SunSpec device is unavailable") from err
     entry.runtime_data = coordinator
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        await coordinator.async_refresh()
     except Exception:
         await coordinator.async_shutdown()
         try:
@@ -96,9 +81,7 @@ async def async_setup_entry(
     return True
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: FroniusPVConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -> bool:
     """Stop coordinator activity and close its persistent transport safely."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False

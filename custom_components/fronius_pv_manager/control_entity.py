@@ -37,7 +37,7 @@ def control_entity_sources(
 ) -> tuple[ControlEntitySource, ...]:
     """Build fixed sources from discovered catalog metadata."""
     sources = []
-    for device in coordinator.data.devices:
+    for device in coordinator.entity_data.devices:
         metadata = _device_metadata(device.decoded_models)
         occurrences: dict[int, int] = {}
         for snapshot in device.decoded_models:

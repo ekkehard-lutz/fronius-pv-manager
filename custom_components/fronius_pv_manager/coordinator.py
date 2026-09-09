@@ -9,13 +9,14 @@ from types import MappingProxyType
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .model_decoder import DecodedModel, decode_model
 from .models import DiscoveredModel, SunSpecModelDefinition
 from .register_maps import get_model_definition
-from .sunspec import SunSpecDiscovery
+from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
+from .topology import CONF_TOPOLOGY, model_topology, restore_model
 from .transport import (
     ModbusDeviceTransport,
     ModbusTransportError,
@@ -34,6 +35,7 @@ class DecodedModelSnapshot:
     discovered: DiscoveredModel
     definition: SunSpecModelDefinition
     decoded: DecodedModel
+    available: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +89,26 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         if not transports:
             raise ValueError("at least one Modbus device transport is required")
         self.transports = MappingProxyType(dict(transports))
-        self.discovered_models_by_device: dict[
-            int, tuple[DiscoveredModel, ...]
-        ] = {}
+        self.discovered_models_by_device: dict[int, tuple[DiscoveredModel, ...]] = {}
+        self.entry = entry
+        self.topology = dict(entry.data.get(CONF_TOPOLOGY, {}))
+        for device_id in transports:
+            records = self.topology.get(str(device_id), ())
+            if records:
+                self.discovered_models_by_device[device_id] = tuple(
+                    restore_model(record)[0] for record in records
+                )
+        self.data = FroniusPVCoordinatorData(
+            tuple(
+                DeviceSnapshot(
+                    device_id,
+                    self.discovered_models_by_device.get(device_id, ()),
+                    (),
+                    available=False,
+                )
+                for device_id in transports
+            )
+        )
         self.write_policies = MappingProxyType(dict(write_policies or {}))
         # This serializes this config entry only; external Modbus clients remain
         # independent TCP sessions outside Home Assistant's control.
@@ -113,8 +132,8 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     async def async_discover(self) -> None:
         """Connect and discover the SunSpec topology once in the executor."""
         async with self._io_lock:
-            self.discovered_models_by_device = (
-                await self.hass.async_add_executor_job(self._connect_and_discover)
+            self.discovered_models_by_device = await self.hass.async_add_executor_job(
+                self._connect_and_discover
             )
 
     def _connect_and_discover(self) -> dict[int, tuple[DiscoveredModel, ...]]:
@@ -131,30 +150,94 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
 
     async def _async_update_data(self) -> FroniusPVCoordinatorData:
         """Poll and decode all supported models without blocking the event loop."""
-        try:
-            async with self._io_lock:
-                return await self.hass.async_add_executor_job(self._poll_devices)
-        except ModbusTransportError as err:
-            raise UpdateFailed("failed to read SunSpec device data") from err
+        async with self._io_lock:
+            data = await self.hass.async_add_executor_job(self._poll_devices)
+        if self.entry.data.get(CONF_TOPOLOGY) != self.topology:
+            self.hass.config_entries.async_update_entry(
+                self.entry, data={**self.entry.data, CONF_TOPOLOGY: self.topology}
+            )
+        return data
+
+    @property
+    def entity_data(self) -> FroniusPVCoordinatorData:
+        """Expose cached structure separately from current measurements."""
+        devices = []
+        for device_id in self.transports:
+            if str(device_id) not in self.topology:
+                current = next(
+                    (
+                        device
+                        for device in self.data.devices
+                        if device.device_id == device_id
+                    ),
+                    None,
+                )
+                if current is not None:
+                    devices.append(current)
+                    continue
+            snapshots = []
+            discovered_models = []
+            for record in self.topology.get(str(device_id), ()):
+                discovered, decoded = restore_model(record)
+                discovered_models.append(discovered)
+                definition = get_model_definition(discovered.model_id)
+                if definition is not None:
+                    snapshots.append(
+                        DecodedModelSnapshot(discovered, definition, decoded)
+                    )
+            devices.append(
+                DeviceSnapshot(
+                    device_id,
+                    tuple(discovered_models),
+                    tuple(snapshots),
+                    available=False,
+                )
+            )
+        return FroniusPVCoordinatorData(tuple(devices))
 
     def _poll_devices(self) -> FroniusPVCoordinatorData:
         """Poll every device without retaining stale data after partial failure."""
         devices = []
         for device_id, transport in self.transports.items():
-            discovered = self.discovered_models_by_device[device_id]
+            discovered = self.discovered_models_by_device.get(device_id, ())
             try:
+                if not discovered:
+                    owner = getattr(transport, "endpoint", transport)
+                    owner.connect()
+                    discovered = SunSpecDiscovery(transport).discover()
+                    self.discovered_models_by_device[device_id] = discovered
                 decoded = self._poll_device(transport, discovered)
-            except ModbusTransportError:
-                _LOGGER.warning(
+            except ModbusTransportError, SunSpecDiscoveryError:
+                _LOGGER.debug(
                     "Failed to poll Modbus device ID %s", device_id, exc_info=True
                 )
                 devices.append(
                     DeviceSnapshot(device_id, discovered, (), available=False)
                 )
             else:
-                devices.append(DeviceSnapshot(device_id, discovered, decoded))
-        if not any(device.available for device in devices):
-            raise ModbusTransportError("all configured Modbus devices failed to poll")
+                devices.append(
+                    DeviceSnapshot(
+                        device_id,
+                        discovered,
+                        decoded,
+                        available=any(model.available for model in decoded),
+                    )
+                )
+                previous = {
+                    item["model"]["base_address"]: item
+                    for item in self.topology.get(str(device_id), ())
+                }
+                by_address = {item.discovered.base_address: item for item in decoded}
+                records = []
+                for model in discovered:
+                    snapshot = by_address.get(model.base_address)
+                    if snapshot is not None and snapshot.available:
+                        records.append(model_topology(model, snapshot.decoded))
+                    else:
+                        records.append(
+                            previous.get(model.base_address, model_topology(model))
+                        )
+                self.topology = {**self.topology, str(device_id): records}
         return FroniusPVCoordinatorData(tuple(devices))
 
     @staticmethod
@@ -168,18 +251,33 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
             definition = get_model_definition(discovered.model_id)
             if definition is None:
                 continue
-            payload = read_holding_registers_chunked(
-                transport,
-                discovered.base_address,
-                discovered.length,
-            )
-            decoded_models.append(
-                DecodedModelSnapshot(
-                    discovered=discovered,
-                    definition=definition,
-                    decoded=decode_model(definition, payload),
+            try:
+                payload = read_holding_registers_chunked(
+                    transport,
+                    discovered.base_address,
+                    discovered.length,
                 )
-            )
+                decoded = decode_model(definition, payload)
+            except ModbusTransportError, ValueError:
+                _LOGGER.debug(
+                    "Failed to read SunSpec model %s at address %s",
+                    discovered.model_id,
+                    discovered.base_address,
+                    exc_info=True,
+                )
+                # Preserve occurrence coordinates without retaining old values.
+                decoded_models.append(
+                    DecodedModelSnapshot(
+                        discovered,
+                        definition,
+                        DecodedModel({}, {}),
+                        available=False,
+                    )
+                )
+            else:
+                decoded_models.append(
+                    DecodedModelSnapshot(discovered, definition, decoded)
+                )
         return tuple(decoded_models)
 
     async def async_close(self) -> None:

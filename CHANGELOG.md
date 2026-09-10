@@ -9,8 +9,10 @@ releases will use semantic versioning.
 
 - v0.3.0-beta.2: quantize HLC watt constraints at the Model 124 rate resolution,
   rounding maxima down and minima up while retaining semantic watt settings.
-- Derive whole-watt UI steps from WChaMax and InOutWRte_SF; reject windows
-  that become impossible after quantization before any Modbus write.
+- Keep HLC power UI steps fixed at 1 W, independent of hardware resolution;
+  adjacent semantic settings may share a quantized register target.
+- Reject windows that become impossible after quantization before any Modbus
+  write.
 - Clarify that disabled low-level entities are a UI default, not a separate
   authorization boundary; both HLC and LLC remain subject to Write Policy.
 

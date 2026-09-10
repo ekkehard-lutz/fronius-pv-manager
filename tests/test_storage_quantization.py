@@ -1,6 +1,5 @@
 """GEN24 beta.1 regression: preserve watt constraints at register resolution."""
 
-import math
 from dataclasses import asdict, replace
 from fractions import Fraction
 
@@ -11,7 +10,6 @@ from custom_components.fronius_pv_manager.number import StorageNumber, async_set
 from custom_components.fronius_pv_manager.storage_control import (
     PowerSettings,
     StorageControl,
-    power_ui_step,
     power_window,
 )
 from tests.control_entity_fakes import MODEL_BASE
@@ -129,16 +127,16 @@ def test_endpoints_are_exact(sf, field, register, minimum, watts):
 
 
 @pytest.mark.parametrize(
-    "sf,maximum,minimum,step",
+    "sf,maximum,minimum",
     [
-        (-2, 9.76, 9.77, 2),
-        (-1, 9.7, 9.8, 11),
-        (0, 9, 10, 103),
-        (1, 0, 10, 1024),
-        (2, 0, 100, 10240),
+        (-2, 9.76, 9.77),
+        (-1, 9.7, 9.8),
+        (0, 9, 10),
+        (1, 0, 10),
+        (2, 0, 100),
     ],
 )
-def test_other_rate_scales(sf, maximum, minimum, step):
+def test_other_rate_scales(sf, maximum, minimum):
     assert (
         power_window(PowerSettings(0, 1000, 0, REFERENCE), REFERENCE, "manual", sf)[
             "InWRte"
@@ -151,35 +149,25 @@ def test_other_rate_scales(sf, maximum, minimum, step):
         )["OutWRte"]
         == -minimum
     )
-    assert power_ui_step(REFERENCE, sf) == step
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "reference,sf,expected",
+    "reference,sf",
     [
-        (6000, -2, 1),
-        (10000, -2, 1),
-        (10240, -2, 2),
-        (10000, -1, 10),
-        (6000, 0, 60),
-        (1024.5, -1, 2),
+        (6000, -2),
+        (10000, -2),
+        (10240, -2),
+        (10000, -1),
+        (6000, 0),
+        (1024, 1),
     ],
 )
-def test_ui_step_is_smallest_integer_covering_raw_resolution(reference, sf, expected):
-    step = power_ui_step(reference, sf)
-    resolution = Fraction(str(reference)) * Fraction(10) ** sf / 100
-    assert step == expected
-    assert type(step) is int
-    assert step >= resolution
-    assert step - 1 < resolution
-    # A step changes both maximum-floor and minimum-ceiling magnitude values.
-    for watts in range(0, math.floor(reference) - step + 1, step):
-        before, after = (
-            Fraction(watts) / resolution,
-            Fraction(watts + step) / resolution,
-        )
-        assert math.floor(after) > math.floor(before)
-        assert math.ceil(after) > math.ceil(before)
+async def test_ui_step_is_one_watt_independent_of_hardware_resolution(reference, sf):
+    coordinator, _ = hardware(reference, sf)
+    entities = await power_entities(coordinator)
+    for field, _, _ in FIELDS:
+        assert entities[field].native_step == 1
 
 
 @pytest.mark.parametrize("sf", [None, True, -32768, 32768, -3, 3])
@@ -211,21 +199,21 @@ async def test_invalid_or_quantization_collapsed_window_rejected_before_any_writ
 
 
 @pytest.mark.asyncio
-async def test_ui_resolution_changes_but_whole_watt_settings_remain_independent():
+async def test_ui_step_stays_one_watt_when_hardware_resolution_changes():
     coordinator, control = hardware()
     entities = await power_entities(coordinator)
     for field, _, _ in FIELDS:
-        assert entities[field].native_step == 2
+        assert entities[field].native_step == 1
         assert entities[field].native_max_value == REFERENCE
     assert entities["minimum_reserve"].native_step == 1
-    # Typed whole-watt values need not be multiples of the UI arrow step.
+    # Every whole-watt value is valid; fractional-watt input remains rejected.
     await entities["maximum_charge_power"].async_set_native_value(1001)
     assert entities["maximum_charge_power"].native_value == 1001
     with pytest.raises(ServiceValidationError, match="whole watts"):
         await entities["maximum_charge_power"].async_set_native_value(1000.5)
     coordinator.control_transport.registers[MODEL_BASE + 23] = 0xFFFF
     coordinator.data = coordinator._snapshot()
-    assert entities["maximum_charge_power"].native_step == 11
+    assert entities["maximum_charge_power"].native_step == 1
     assert entities["maximum_charge_power"].native_value == 1001
     await control.async_change(1, mode="manual")
     assert control.last_targets["1"]["InWRte"] == 9.7
@@ -281,3 +269,22 @@ async def test_missing_resolution_disables_power_ui_but_automatic_edit_stays_sem
     with pytest.raises(ServiceValidationError):
         await control.async_change(1, mode="manual")
     assert not coordinator.control_transport.write_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,register,minimum", FIELDS)
+async def test_adjacent_semantic_watts_can_share_a_hardware_target(
+    field, register, minimum
+):
+    coordinator, control = hardware()
+    entities = await power_entities(coordinator)
+    await control.async_change(1, mode="manual")
+    first = 1023 if minimum else 1024
+    await entities[field].async_set_native_value(first)
+    target = dict(control.last_targets["1"])
+    assert target[register] == (-10 if minimum else 10)
+    await entities[field].async_set_native_value(first + entities[field].native_step)
+    assert entities[field].native_value == first + 1
+    assert getattr(control.values(1), field) == first + 1
+    assert control.last_targets["1"] == target
+    assert control.status(1) == "manual_hlc"

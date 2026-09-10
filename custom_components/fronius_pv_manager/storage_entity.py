@@ -40,7 +40,7 @@ class StorageEntity(CoordinatorEntity):
         try:
             self.control.snapshot(self._source.device_id)
             if self.key.endswith("power"):
-                self.control.power_step(self._source.device_id)
+                self.control.validate_power_resolution(self._source.device_id)
         except ServiceValidationError:
             return False
         return True

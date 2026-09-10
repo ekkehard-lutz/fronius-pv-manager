@@ -221,14 +221,7 @@ def _entity_category(hint: EntityCategoryHint) -> EntityCategory | None:
 class StorageNumber(StorageEntity, NumberEntity):
     """Reserve or an integration-owned watt constraint."""
 
-    @property
-    def native_step(self):
-        if self.key == "minimum_reserve":
-            return 1
-        try:
-            return self.control.power_step(self._source.device_id)
-        except ServiceValidationError:
-            return 1  # No hardware resolution is advertised while unavailable.
+    _attr_native_step = 1
 
     def __init__(self, coordinator, entry_id, source, key):
         super().__init__(coordinator, entry_id, source, key)

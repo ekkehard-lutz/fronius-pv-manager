@@ -72,14 +72,6 @@ def _rate_resolution(scale_factor: int) -> Fraction:
     return Fraction(10) ** scale_factor
 
 
-def power_ui_step(reference: float, scale_factor: int) -> int:
-    """Smallest positive whole-watt step at least as large as one raw step."""
-    watts_to_percent(0, reference)
-    return max(
-        1, math.ceil(Fraction(str(reference)) * _rate_resolution(scale_factor) / 100)
-    )
-
-
 def validate_power_settings(settings: PowerSettings, reference: float) -> None:
     """Validate semantic settings without requiring exact register representation."""
     for value in asdict(settings).values():
@@ -231,10 +223,10 @@ class StorageControl:
         """Read the currently decoded rate scale; writer preflight rechecks it live."""
         return self.snapshot(device_id)["InOutWRte_SF"].value
 
-    def power_step(self, device_id) -> int:
-        return power_ui_step(
-            self.reference(device_id), self.rate_scale_factor(device_id)
-        )
+    def validate_power_resolution(self, device_id) -> None:
+        """Retain availability validation independently of the semantic UI step."""
+        self.reference(device_id)
+        _rate_resolution(self.rate_scale_factor(device_id))
 
     def values(self, device_id):
         saved = self.settings.get(str(device_id))

@@ -165,13 +165,12 @@ quantized register percentages, so status can correctly report `manual_hlc`.
 Zero and the ±100% endpoints remain exact for supported rate scales. Scales
 that cannot encode the neutral sequence's ±100% endpoints fail before writing.
 
-The number UI uses whole watts and a step of
-`max(1, ceil(WChaMax × 10^InOutWRte_SF / 100))`, calculated without floating-point
-drift. This is the smallest integer step covering one raw register step: 2 W
-on the tested hardware. Home Assistant's fixed step cannot express the exact
-nonuniform sequence of representable whole-watt settings. Typed whole-watt
-values need not be multiples of the UI step; fractional-watt entries are
-rejected. The upper whole-watt UI bound rounds a fractional `WChaMax` down.
+The number UI uses whole watts with a fixed **1 W Up/Down step**, independently
+of `WChaMax` and `InOutWRte_SF`. Hardware resolution may differ: requested
+whole-watt values are quantized only when translated to Model 124 register
+values. Adjacent watt settings may therefore occasionally produce the same
+hardware target. Fractional-watt entries are rejected, and the upper whole-watt
+UI bound rounds a fractional `WChaMax` down.
 
 Mode changes and manual edits preflight every policy and encoded register value
 before writing. One coordinator I/O lock covers the full sequence and prevents

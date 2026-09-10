@@ -47,6 +47,9 @@ async def test_harness_uses_real_apis_and_heartbeat_has_no_writes(remote):
     )
     for name in methods:
         setattr(control, name, AsyncMock(wraps=getattr(control, name)))
+    original_profile = control.values(1)
+    original_reserve = control.snapshot(1)["MinRsvPct"].value
+    original_grid = control.snapshot(1)["ChaGriSet"].raw
     await call(coordinator, "debug_remote_acquire")
     control.async_acquire_remote_control.assert_awaited_once_with(1, TEST_OWNER, None)
     assert control.remote_owner(1) == TEST_OWNER
@@ -71,6 +74,10 @@ async def test_harness_uses_real_apis_and_heartbeat_has_no_writes(remote):
     await call(coordinator, "debug_remote_release")
     control.async_release_remote_control.assert_awaited_once_with(1, TEST_OWNER)
     assert control.mode(1) == "automatic"
+    assert control.values(1) == original_profile
+    assert control.snapshot(1)["MinRsvPct"].value == original_reserve
+    assert control.snapshot(1)["ChaGriSet"].raw == original_grid
+    assert not control._pre_remote
     assert control.remote_owner(1) is None
 
 

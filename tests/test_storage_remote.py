@@ -254,10 +254,10 @@ async def test_renew_postpones_watchdog_and_expiry_restores_automatic(
     assert not clock.active
     assert control.last_targets["1"] == NEUTRAL
     assert control.status(1) == "automatic"
-    assert len(coordinator.control_transport.write_calls) == before + 3
+    assert len(coordinator.control_transport.write_calls) == before + 5
     assert "automatic mode restored" in caplog.text
     await clock.advance(900, control)
-    assert len(coordinator.control_transport.write_calls) == before + 3
+    assert len(coordinator.control_transport.write_calls) == before + 5
 
 
 @pytest.mark.asyncio
@@ -279,17 +279,18 @@ async def test_expired_owner_cannot_renew_or_command_even_before_timer_dispatch(
 @pytest.mark.asyncio
 async def test_release_writes_neutral_then_clears_ownership(remote):
     coordinator, control, clock = remote
+    original_profile = control.values(1)
     await control.async_acquire_remote_control(1, OWNER, PROFILE)
     start = len(coordinator.control_transport.write_calls)
     await control.async_release_remote_control(1, OWNER)
     assert control.mode(1) == "automatic"
     assert control.last_targets["1"] == NEUTRAL
-    assert control.values(1) == PROFILE
+    assert control.values(1) == original_profile
     assert not control._leases and not clock.active
     assert [
         address - MODEL_BASE
         for address, _ in coordinator.control_transport.write_calls[start:]
-    ] == [3, 11, 10]
+    ] == [3, 11, 10, 5, 15]
     await control.async_change(1, mode="manual")
     assert control.mode(1) == "manual"
 
@@ -331,6 +332,8 @@ async def test_remote_metadata_not_restored_as_authority_or_blind_write(remote):
     await restored.async_load()
     assert restored.mode(1) == "automatic"
     assert restored.remote_owner(1) is None
+    assert not restored._pre_remote and not restored._cleanup
+    assert restored.values(1) != PROFILE
     assert restored.status(1) == "unknown"
     assert not restored._watchdogs
     assert not fresh_coordinator.control_transport.write_calls
@@ -353,6 +356,7 @@ async def test_config_entry_unload_cancels_watchdog_and_rejects_late_calls(remot
     entry.runtime_data = coordinator
     assert await async_unload_entry(coordinator.hass, entry)
     assert not clock.active and not control._leases
+    assert not control._pre_remote and not control._cleanup
     await clock.advance(200, control)
     assert coordinator.control_transport.write_calls == writes
     with pytest.raises(ServiceValidationError, match="unloading"):
@@ -520,7 +524,7 @@ async def test_expired_failed_release_must_complete_before_new_control(
     assert [
         address - MODEL_BASE
         for address, _ in coordinator.control_transport.write_calls[start:]
-    ] == [3, 11, 10, 3, 11, 10, 11, 10, 3]
+    ] == [3, 11, 10, 5, 15, 3, 11, 10, 11, 10, 3]
 
 
 @pytest.mark.asyncio

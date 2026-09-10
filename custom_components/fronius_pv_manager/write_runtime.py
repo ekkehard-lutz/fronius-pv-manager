@@ -124,9 +124,13 @@ class FroniusPVWriteRuntime:
         await self._coordinator.async_request_refresh()
         return FroniusPVWriteResult(device_id, policy, result)
 
-    async def async_write_sequence(self, device_id, requests):
+    async def async_write_sequence(
+        self, device_id, requests, *, safety_prefix=0, before_write=None
+    ):
         """Preflight every step, then execute under one polling/write lock.
 
+        A nonzero safety_prefix defers later preflight errors until that many
+        safety steps have verified; used only to prioritize automatic release.
         No rollback or Modbus atomicity is promised. Cancellation waits for the
         executor to finish before releasing the I/O lock.
         """
@@ -136,7 +140,11 @@ class FroniusPVWriteRuntime:
         async with self._coordinator.io_lock:
             job = asyncio.ensure_future(
                 self._coordinator.hass.async_add_executor_job(
-                    self._sequence_once, device_id, requests
+                    self._sequence_once,
+                    device_id,
+                    requests,
+                    safety_prefix,
+                    before_write,
                 )
             )
             try:
@@ -146,37 +154,49 @@ class FroniusPVWriteRuntime:
                     await job
                 finally:
                     raise
-        await self._coordinator.async_request_refresh()
+        try:
+            await self._coordinator.async_request_refresh()
+        except Exception as err:
+            if safety_prefix:
+                raise WriteSequenceError(
+                    "all cleanup writes verified, but refresh failed",
+                    results,
+                    "refresh",
+                ) from err
+            raise
         return results
 
-    def _sequence_once(self, device_id, requests):
+    def _sequence_once(self, device_id, requests, safety_prefix=0, before_write=None):
         transport = self._coordinator.transports.get(device_id)
         if transport is None:
             raise WriteDeviceNotConfiguredError(f"device {device_id} is not configured")
         discovered = self._coordinator.discovered_models_by_device.get(device_id, ())
         plans = []
-        for model_id, name, value in requests:
-            if sum(model.model_id == model_id for model in discovered) != 1:
-                raise WriteModelNotDiscoveredError(
-                    "sequence requires one unambiguous model"
-                )
-            policy = self._coordinator.write_policies.get((model_id, name))
-            if policy is None or not policy.enabled:
-                raise WriteNotApprovedError(f"writes disabled for {model_id}:{name}")
+        for index, (model_id, name, value) in enumerate(requests):
             try:
-                validate_policy_value(policy, resolve_policy_definition(policy), value)
-                plan = prepare_register_write(
-                    transport, discovered, model_id, name, value
+                plans.append(
+                    self._prepare_sequence_step(
+                        transport, discovered, model_id, name, value
+                    )
                 )
-            except (WritePolicyError, RegisterWriteError) as err:
-                raise WriteInvalidValueError(str(err)) from err
-            except ModbusTransportError as err:
-                raise WriteTransportError(
-                    "sequence preparation failed; no writes attempted"
-                ) from err
-            plans.append((policy, plan))
+            except FroniusPVWriteError as err:
+                if not safety_prefix or index < safety_prefix:
+                    raise
+                # Preflight every restoration step, but do not let a policy
+                # restore failure prevent the verified automatic safety prefix.
+                plans.append(err)
+        if before_write is not None:
+            before_write(transport, discovered)
         results = []
-        for index, (policy, plan) in enumerate(plans):
+        for index, prepared in enumerate(plans):
+            if isinstance(prepared, Exception):
+                raise WriteSequenceError(
+                    f"restore preflight failed for {requests[index][1]}; "
+                    f"{index} steps verified; failed step was not written",
+                    tuple(results),
+                    requests[index][1],
+                ) from prepared
+            policy, plan = prepared
             try:
                 result = execute_register_write(transport, plan)
                 if not result.verified:
@@ -195,6 +215,25 @@ class FroniusPVWriteRuntime:
                 ) from err
             results.append(FroniusPVWriteResult(device_id, policy, result))
         return tuple(results)
+
+    def _prepare_sequence_step(self, transport, discovered, model_id, name, value):
+        if sum(model.model_id == model_id for model in discovered) != 1:
+            raise WriteModelNotDiscoveredError(
+                "sequence requires one unambiguous model"
+            )
+        policy = self._coordinator.write_policies.get((model_id, name))
+        if policy is None or not policy.enabled:
+            raise WriteNotApprovedError(f"writes disabled for {model_id}:{name}")
+        try:
+            validate_policy_value(policy, resolve_policy_definition(policy), value)
+            plan = prepare_register_write(transport, discovered, model_id, name, value)
+        except (WritePolicyError, RegisterWriteError) as err:
+            raise WriteInvalidValueError(str(err)) from err
+        except ModbusTransportError as err:
+            raise WriteTransportError(
+                "sequence preparation failed; no writes attempted"
+            ) from err
+        return policy, plan
 
     @staticmethod
     def _write_once(transport, discovered, policy, value) -> RegisterWriteResult:

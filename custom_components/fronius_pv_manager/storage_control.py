@@ -15,7 +15,8 @@ from homeassistant.helpers.storage import Store
 
 from .codec import encode_register_value
 from .register_maps import MODEL_124
-from .write_runtime import WriteInvalidValueError
+from .register_reader import read_register
+from .write_runtime import WriteInvalidValueError, WriteSequenceError
 
 _LOGGER = logging.getLogger(__name__)
 REMOTE_LEASE_SECONDS = 90
@@ -37,6 +38,23 @@ class PowerSettings:
     maximum_charge_power: float = 0
     minimum_discharge_power: float = 0
     maximum_discharge_power: float = 0
+
+
+@dataclass(frozen=True)
+class PreRemoteSnapshot:
+    """One lease's immutable user configuration, never serialized."""
+
+    minimum_reserve: float
+    grid_charging_allowed: bool
+    power_settings: PowerSettings
+
+
+@dataclass(frozen=True)
+class RemoteCleanup:
+    """Runtime-only verified progress from the latest cleanup attempt."""
+
+    verified_steps: int = 0
+    failed_step: str | None = None
 
 
 def watts_to_percent(watts: float, reference: float) -> float:
@@ -192,6 +210,8 @@ class StorageControl:
         self.last_targets: dict[str, dict[str, int | float]] = {}
         self.lock = asyncio.Lock()
         self._leases: dict[int, RemoteLease] = {}
+        self._pre_remote: dict[int, PreRemoteSnapshot] = {}
+        self._cleanup: dict[int, RemoteCleanup] = {}
         self._watchdogs = {}
         self._watchdog_tasks: set[asyncio.Task] = set()
         self._closed = False
@@ -319,7 +339,17 @@ class StorageControl:
             await self._manual_access(device_id)
             await self._apply_locked(device_id, settings, "manual", apply=True)
 
-    async def _apply_locked(self, device_id, settings, mode, *, apply, validate=True):
+    async def _apply_locked(
+        self,
+        device_id,
+        settings,
+        mode,
+        *,
+        apply,
+        validate=True,
+        persisted_profile=None,
+        before_write=None,
+    ):
         """Shared HLC commit path. Caller holds the semantic state lock."""
         if validate:
             if not isinstance(settings, PowerSettings):
@@ -362,15 +392,27 @@ class StorageControl:
                     ]
                 )
             await self.coordinator.write_runtime.async_write_sequence(
-                device_id, sequence
+                device_id,
+                sequence,
+                **({"before_write": before_write} if before_write else {}),
             )
         updated = {**self.settings, str(device_id): asdict(settings)}
         modes = {**self.modes, str(device_id): mode}
         targets = dict(self.last_targets)
         if apply:
             targets[str(device_id)] = target
+        persisted = updated
+        if mode == "remote":
+            if persisted_profile is None and device_id in self._pre_remote:
+                persisted_profile = self._pre_remote[device_id].power_settings
+            if persisted_profile is not None:
+                persisted = {**updated, str(device_id): asdict(persisted_profile)}
+        # Other devices may also be under temporary remote control.
+        for other, snapshot in self._pre_remote.items():
+            if other != device_id:
+                persisted = {**persisted, str(other): asdict(snapshot.power_settings)}
         await self.store.async_save(
-            {"settings": updated, "modes": modes, "last_targets": targets}
+            {"settings": persisted, "modes": modes, "last_targets": targets}
         )
         self.settings = updated
         self.modes = modes
@@ -383,7 +425,13 @@ class StorageControl:
     def remote_owner(self, device_id: int) -> str | None:
         """Return only live ownership; owner IDs are not security credentials."""
         lease = self._leases.get(device_id)
-        return lease.owner_id if lease and self._now() < lease.expires_at else None
+        return (
+            lease.owner_id
+            if lease
+            and device_id not in self._cleanup
+            and self._now() < lease.expires_at
+            else None
+        )
 
     def _ensure_open(self):
         if self._closed:
@@ -400,6 +448,8 @@ class StorageControl:
         lease = self._leases.get(device_id)
         if lease is None or lease.owner_id != owner_id:
             raise ServiceValidationError("caller does not own remote storage control")
+        if live and device_id in self._cleanup:
+            raise ServiceValidationError("remote cleanup is pending; retry release")
         if live and self._now() >= lease.expires_at:
             raise ServiceValidationError("remote storage lease has expired")
 
@@ -432,12 +482,29 @@ class StorageControl:
                 )
             if device_id in self._leases and owner is None:
                 await self._expire_locked(device_id)
+            candidate = []
+            user_profile = self.values(device_id)
+
+            def capture(transport, discovered):
+                reserve = read_register(
+                    transport, discovered, 124, "MinRsvPct"
+                ).value.value
+                grid = read_register(transport, discovered, 124, "ChaGriSet").value.raw
+                self._validate_policy_setting("MinRsvPct", reserve)
+                self._validate_policy_setting("ChaGriSet", grid)
+                candidate.append(PreRemoteSnapshot(reserve, bool(grid), user_profile))
+
+            first_acquire = device_id not in self._pre_remote
             await self._apply_locked(
                 device_id,
-                self.values(device_id) if settings is None else settings,
+                user_profile if settings is None else settings,
                 "remote",
                 apply=True,
+                persisted_profile=user_profile if first_acquire else None,
+                before_write=capture if first_acquire else None,
             )
+            if first_acquire:
+                self._pre_remote[device_id] = candidate[0]
             self._renew(device_id, owner_id)
 
     async def async_remote_heartbeat(self, device_id: int, owner_id: str) -> None:
@@ -464,7 +531,8 @@ class StorageControl:
             await self._manual_access(device_id)
             await self._write_policy_setting(device_id, name, value)
 
-    async def _write_policy_setting(self, device_id, name, value):
+    @staticmethod
+    def _validate_policy_setting(name, value):
         if name == "MinRsvPct":
             if (
                 type(value) not in (int, float)
@@ -479,6 +547,9 @@ class StorageControl:
                 raise ServiceValidationError("grid charging permission must be 0 or 1")
         else:
             raise ServiceValidationError("unknown storage policy setting")
+
+    async def _write_policy_setting(self, device_id, name, value):
+        self._validate_policy_setting(name, value)
         try:
             await self.coordinator.write_runtime.async_write(
                 device_id, 124, name, value
@@ -513,11 +584,50 @@ class StorageControl:
             await self._release_locked(device_id)
 
     async def _release_locked(self, device_id):
+        snapshot = self._pre_remote.get(device_id)
+        if snapshot is None:
+            raise ServiceValidationError("pre-remote snapshot is missing")
+        self._validate_policy_setting("MinRsvPct", snapshot.minimum_reserve)
+        grid = int(snapshot.grid_charging_allowed)
+        self._validate_policy_setting("ChaGriSet", grid)
+        self._cancel_watchdog(device_id)
+        self._cleanup[device_id] = RemoteCleanup()
+        sequence = [
+            (124, "StorCtl_Mod", 0),
+            (124, "InWRte", 100),
+            (124, "OutWRte", 100),
+            (124, "MinRsvPct", snapshot.minimum_reserve),
+            (124, "ChaGriSet", grid),
+        ]
+        try:
+            await self.coordinator.write_runtime.async_write_sequence(
+                device_id, sequence, safety_prefix=3
+            )
+        except WriteSequenceError as err:
+            self._cleanup[device_id] = RemoteCleanup(
+                len(err.completed), err.failed_register
+            )
+            if len(err.completed) >= 3:
+                self._record_automatic(device_id)
+            raise
+        except Exception:
+            self._cleanup[device_id] = RemoteCleanup(0, "preflight")
+            raise
+        self._record_automatic(device_id)
+        self._cleanup[device_id] = RemoteCleanup(5, "persistence")
+        # Saved profile only: NEVER reapply the old manual power window.
         await self._apply_locked(
-            device_id, self.values(device_id), "automatic", apply=True, validate=False
+            device_id, snapshot.power_settings, "automatic", apply=False, validate=False
         )
         self._leases.pop(device_id, None)
-        self._cancel_watchdog(device_id)
+        self._pre_remote.pop(device_id, None)
+        self._cleanup.pop(device_id, None)
+
+    def _record_automatic(self, device_id):
+        """Record verified safety even when later policy/persistence steps fail."""
+        self.modes[str(device_id)] = "automatic"
+        self.last_targets[str(device_id)] = power_window(None, 0, "automatic")
+        self.coordinator.async_update_listeners()
 
     async def _expire_locked(self, device_id):
         owner_id = self._leases[device_id].owner_id
@@ -560,7 +670,11 @@ class StorageControl:
 
     async def _async_watchdog(self, device_id):
         async with self.lock:
-            if self._closed or device_id not in self._leases:
+            if (
+                self._closed
+                or device_id not in self._leases
+                or device_id in self._cleanup
+            ):
                 return
             remaining = self._leases[device_id].expires_at - self._now()
             if remaining > 0:
@@ -570,13 +684,14 @@ class StorageControl:
             try:
                 await self._expire_locked(device_id)
             except Exception:
-                # Keep the expired reservation, mode and last successful target.
-                # A later explicit release/acquisition/manual action can retry
-                # the neutral fail-safe; never claim successful release or loop writes.
+                # Retain the snapshot, reservation and verified cleanup progress.
+                # Only an explicit later action can retry; never loop writes.
                 _LOGGER.exception(
                     "Remote lease expired for device %s; automatic fallback failed; "
-                    "ownership remains expired pending verified release",
+                    "cleanup pending: %s; runtime mode=%s",
                     device_id,
+                    self._cleanup.get(device_id),
+                    self.mode(device_id),
                 )
 
     async def async_shutdown(self) -> None:
@@ -586,5 +701,7 @@ class StorageControl:
             self._cancel_watchdog(device_id)
         async with self.lock:
             self._leases.clear()
+            self._pre_remote.clear()
+            self._cleanup.clear()
         if self._watchdog_tasks:
             await asyncio.gather(*self._watchdog_tasks, return_exceptions=True)

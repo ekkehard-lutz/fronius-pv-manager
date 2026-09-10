@@ -246,7 +246,7 @@ or Energy Manager strategy are introduced here.
 | `async_acquire_remote_control(device_id, owner_id, settings=None)` | Apply a complete remote profile, then acquire a 90-second lease. If omitted, use current saved settings. A different live owner is rejected. |
 | `async_remote_heartbeat(device_id, owner_id)` | Renew the current live owner's lease without Modbus I/O. |
 | `async_set_remote_power_window(device_id, owner_id, settings)` | Apply a complete profile for the live owner; renew only after success. |
-| `async_release_remote_control(device_id, owner_id)` | Apply the complete neutral automatic target, then release ownership. The owner can also retry a failed release after expiry. |
+| `async_release_remote_control(device_id, owner_id)` | Return to neutral automatic, restore the pre-remote reserve/grid policy and saved power profile, then release ownership. The owner can retry incomplete cleanup. |
 | `async_set_remote_minimum_reserve(device_id, owner_id, value)` | Set requested reserve (5–100%) through Write Policy; renew the live owner lease only on success. |
 | `async_set_remote_grid_charging_allowed(device_id, owner_id, enabled)` | Set grid permission (boolean) through Write Policy; renew only on success. |
 | `remote_owner(device_id)` | Return the live owner ID, or `None`. |
@@ -282,8 +282,9 @@ Enabled LLC entities retain their existing Write Policy behavior.
 
 Remote updates share the same complete validation, exact quantization, locked,
 ordered and read-back-verified sequence as manual updates. Atomicity here means
-one semantic state update, **not atomic Modbus writes**. Last target and saved
-settings change only after complete success. `manual_hlc` status also denotes
+one semantic state update, **not atomic Modbus writes**. Remote commands update live settings only after complete success; persistence
+retains the pre-remote user power profile. Cleanup records verified Automatic
+power safety even if a later restoration step fails. `manual_hlc` status also denotes
 agreement with a remotely applied HLC profile; it describes register agreement,
 not ownership. LLC/external overrides remain visible, and a heartbeat never
 restores a target. Only an explicit profile command reapplies it.
@@ -296,14 +297,49 @@ always returns to automatic. There is no periodic register rewrite or control
 loop. PV Manager owns device-level control; a future separate Energy Manager
 owns the closed-loop strategy.
 
-If a release or timeout sequence fails, its partial-write error is retained/logged;
-mode and last successful target are not falsely changed to automatic. An expired
-lease cannot heartbeat or submit remote commands. The expired reservation remains
-until verified automatic release succeeds. The owner may retry release; a later
-manual action or acquisition first retries that neutral fail-safe before taking
-control. There is no speculative rollback or unattended repeated write loop.
+Remote takeover is temporary. One immutable in-memory `PreRemoteSnapshot` per
+device contains `minimum_reserve`, `grid_charging_allowed`, and all four
+`power_settings`. Reserve and grid permission are read live under the I/O lock,
+after takeover preflight and immediately before its first write. The snapshot
+becomes active only after takeover succeeds. Same-owner reacquisition and remote
+updates do not replace it; a new lease after cleanup captures new user values.
 
-Owner and heartbeat data are runtime-only. On restart, saved remote mode becomes
+Explicit release and watchdog timeout use the same deterministic sequence:
+
+1. Check authority and the snapshot; preflight all register writes.
+2. Write and verify `StorCtl_Mod = 0`, `InWRte = +100%`, `OutWRte = +100%`.
+3. Restore and verify the original minimum reserve, then grid permission.
+4. Restore the four original PowerSettings to persistence and the displayed
+   user profile, without writing them as manual register limits.
+5. Clear the owner, timer, and snapshot; remain in Automatic.
+
+**Previous manual mode is never restored.** A later explicit user selection of
+manual applies the restored profile. The five hardware writes share the I/O
+lock and normal Write Policy/encoding/read-back checks; they are not a Modbus
+transaction. Reserve/grid preflight errors are discovered before any write but
+reported after the neutral safety steps, so they do not prevent an otherwise
+valid Automatic transition. No denied restoration value is written.
+
+If neutral verification fails, mode and last target retain their prior confirmed
+values. If neutral verifies but reserve/grid restore fails, runtime mode and last
+target record Automatic; no remote/manual limits are reapplied. Execution stops
+at the failed step, which may have applied if its verification failed. If profile
+persistence fails, the hardware can already be fully restored, but the live power
+profile remains the remote profile until a successful retry.
+
+Incomplete cleanup retains the immutable snapshot and owner reservation plus
+runtime `RemoteCleanup(verified_steps, failed_step)` diagnostics. It has **no live
+owner** and cannot heartbeat or accept remote updates. The watchdog is cancelled;
+there is no unattended retry loop. Errors propagate to explicit callers and are
+logged for watchdog expiry. The original owner may retry release; a later manual
+action or acquisition first retries complete cleanup. Retries begin with neutral
+Automatic again, never with old manual limits. Only complete cleanup clears the
+snapshot and reservation. There is no speculative rollback.
+
+Owner, heartbeat, cleanup diagnostics, and the reserve/grid snapshot are
+runtime-only. The original user power profile remains persisted during remote
+operation; temporary remote profiles do not replace it. No snapshot is serialized
+or restored across a Home Assistant restart. On restart, saved remote mode becomes
 semantic automatic, with no active owner and **no startup write**. The first poll
 observes actual hardware; it may still have the previous manual/remote register
 window. Historical target metadata remains available for status comparison.
@@ -519,6 +555,7 @@ For example, call acquire, change the window/reserve/grid permission as needed,
 send heartbeat at intervals shorter than 90 seconds (for example 30 seconds),
 then release. Stopping heartbeats exercises the existing automatic watchdog
 fallback. Failed reserve/grid writes do not renew the lease. Release or expiry
-releases the power window; it does not revert reserve or grid permission.
+returns to Automatic and restores the original reserve, grid permission, and
+saved user power profile through the same real snapshot cleanup path.
 Fronius may maintain an effective reserve above the requested minimum, and its
 internal safety/service charging can occur independently of grid permission.

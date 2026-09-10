@@ -21,6 +21,15 @@ releases will use semantic versioning.
 
 ### Added
 
+- Runtime-only pre-remote reserve/grid/profile snapshot for temporary takeover.
+  Orderly release and watchdog expiry restore policy and the saved user profile
+  while always returning power control to Automatic, never previous manual mode.
+- Preserve the user power profile in persistence during remote operation.
+  Snapshots/leases are never restored at restart and cause no startup writes.
+- Cleanup prioritizes verified Automatic even if policy restoration fails;
+  retains explicit partial-progress diagnostics and the snapshot for an explicit
+  retry, with no rollback or unattended retry loop.
+
 - Extend live remote ownership to minimum reserve and grid-charging HLC writes;
   owner-checked APIs use Write Policy and renew the lease only after success.
 - Temporary development-only remote hardware-test actions with validated inputs,

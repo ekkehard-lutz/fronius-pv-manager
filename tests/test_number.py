@@ -11,7 +11,10 @@ from custom_components.fronius_pv_manager.models import (
     EntityPlatform,
     PhysicalDeviceRole,
 )
-from custom_components.fronius_pv_manager.number import async_setup_entry
+from custom_components.fronius_pv_manager.number import (
+    FroniusPVNumber,
+    async_setup_entry,
+)
 from custom_components.fronius_pv_manager.register_maps import MODEL_DEFINITIONS_BY_ID
 from custom_components.fronius_pv_manager.sensor import (
     async_setup_entry as async_setup_sensors,
@@ -39,7 +42,11 @@ async def number_entities(policy: WritePolicy | None):
     entry.runtime_data = coordinator
     entities = []
     await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+        coordinator.hass,
+        entry,
+        lambda items: entities.extend(
+            item for item in items if isinstance(item, FroniusPVNumber)
+        ),
     )
     return coordinator, entities
 
@@ -123,15 +130,17 @@ async def test_enabled_policy_without_narrowing_uses_hard_bounds() -> None:
 @pytest.mark.asyncio
 async def test_number_without_finite_effective_bounds_is_not_exposed() -> None:
     """HA controls fail closed when neither hard nor policy bounds are complete."""
-    coordinator = ControlCoordinator(
-        {(124, "VAChaMax"): WritePolicy(124, "VAChaMax")}
-    )
+    coordinator = ControlCoordinator({(124, "VAChaMax"): WritePolicy(124, "VAChaMax")})
     entry = FakeEntry({})
     entry.runtime_data = coordinator
     entities = []
 
     await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+        coordinator.hass,
+        entry,
+        lambda items: entities.extend(
+            item for item in items if isinstance(item, FroniusPVNumber)
+        ),
     )
 
     assert all(entity._source.register_name != "VAChaMax" for entity in entities)
@@ -152,9 +161,7 @@ async def test_minimum_reserve_is_exposed_with_hard_percentage_bounds() -> None:
 @pytest.mark.asyncio
 async def test_out_of_range_number_write_is_rejected_before_modbus() -> None:
     """Advertised bounds reject unsafe calls before the write runtime executes."""
-    coordinator, entities = await number_entities(
-        WritePolicy(124, "OutWRte", 5, 20)
-    )
+    coordinator, entities = await number_entities(WritePolicy(124, "OutWRte", 5, 20))
 
     for value in (21, float("nan")):
         with pytest.raises(ServiceValidationError):
@@ -192,7 +199,11 @@ async def test_failed_number_verification_keeps_confirmed_state() -> None:
     entry.runtime_data = coordinator
     entities = []
     await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+        coordinator.hass,
+        entry,
+        lambda items: entities.extend(
+            item for item in items if isinstance(item, FroniusPVNumber)
+        ),
     )
 
     with pytest.raises(WriteVerificationMismatchError):
@@ -206,9 +217,7 @@ async def test_failed_number_verification_keeps_confirmed_state() -> None:
 @pytest.mark.asyncio
 async def test_writable_number_has_no_duplicate_sensor() -> None:
     """Catalog platform selection creates one HA representation per register."""
-    coordinator, numbers = await number_entities(
-        WritePolicy(124, "OutWRte", -100, 100)
-    )
+    coordinator, numbers = await number_entities(WritePolicy(124, "OutWRte", -100, 100))
     entry = FakeEntry({})
     entry.runtime_data = coordinator
     sensors = []
@@ -232,30 +241,35 @@ def test_control_translation_keys_cover_catalog_platforms() -> None:
             register.entity.translation_key
             for model in MODEL_DEFINITIONS_BY_ID.values()
             for register in model.registers
-            if register.entity is not None
-            and register.entity.platform is platform
+            if register.entity is not None and register.entity.platform is platform
         }
-        assert all(set(document[platform.value]) == expected for document in documents)
+        assert all(
+            {key for key in document[platform.value] if key.startswith("model_")}
+            == expected
+            for document in documents
+        )
 
 
 def test_low_level_control_names_have_localized_register_prefix() -> None:
     """Control display names are distinct from future high-level entities."""
     root = Path(__file__).parents[1] / "custom_components" / "fronius_pv_manager"
-    english = json.loads(
-        (root / "translations/en.json").read_text(encoding="utf-8")
-    )["entity"]
-    german = json.loads(
-        (root / "translations/de.json").read_text(encoding="utf-8")
-    )["entity"]
+    english = json.loads((root / "translations/en.json").read_text(encoding="utf-8"))[
+        "entity"
+    ]
+    german = json.loads((root / "translations/de.json").read_text(encoding="utf-8"))[
+        "entity"
+    ]
 
     for platform in ("number", "select"):
         assert all(
             item["name"].startswith("Register ")
-            for item in english[platform].values()
+            for key, item in english[platform].items()
+            if key.startswith("model_")
         )
         assert all(
             item["name"].startswith("Register ")
-            for item in german[platform].values()
+            for key, item in german[platform].items()
+            if key.startswith("model_")
         )
     assert english["number"]["model_124_minrsvpct"]["name"] == (
         "Register minimum storage reserve"

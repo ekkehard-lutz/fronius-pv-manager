@@ -21,7 +21,7 @@ from .transport import ModbusTcpEndpointTransport, ModbusTransportError
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = (Platform.SENSOR, Platform.NUMBER, Platform.SELECT)
+PLATFORMS = (Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.SWITCH)
 
 type FroniusPVConfigEntry = ConfigEntry[FroniusPVCoordinator]
 
@@ -65,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
     coordinator = FroniusPVCoordinator(hass, entry, transports, write_policies)
     entry.runtime_data = coordinator
     try:
+        await coordinator.storage_control.async_load()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_refresh()
     except Exception:

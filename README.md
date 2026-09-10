@@ -7,7 +7,7 @@ separate Home Assistant devices.
 
 Version 0.2.0 is the first stable release. It provides the stable low-level
 communication, discovery, sensor, and guarded register-control foundation.
-Higher-level Home Assistant controls may be added separately in future releases.
+The development version adds high-level Home Assistant storage controls.
 
 ## For Home Assistant users
 
@@ -117,6 +117,91 @@ Optional or repeated instances that are not physically present are not invented.
 Report reproducible issues through the
 [issue tracker](https://github.com/ekkehard-lutz/fronius-pv-manager/issues).
 
+## Storage controls (v0.3.0-beta.1 foundation)
+
+Seven enabled-by-default controls are the normal storage interface: minimum
+reserve (5–100%), grid charging allowed, minimum and maximum charge power,
+minimum and maximum discharge power, and automatic/manual operating mode.
+An additional read-only Storage control status sensor shows agreement with the
+last applied HLC target. Grid permission does not prevent Fronius internal or
+service charging.
+
+All four power settings use watts and have the range 0–decoded `WChaMax`, even
+when the battery's real technical limit is lower. Initial minima are zero and
+initial maxima are `WChaMax`. User settings are stored per config entry and
+Modbus device in Home Assistant's `.storage` directory. They survive restart
+and automatic mode; restarting does not automatically apply them to the device.
+
+Automatic mode writes `StorCtl_Mod = 0`, `InWRte = 100%`, and `OutWRte = 100%`.
+Editing watt settings in automatic mode only validates and saves them. Manual
+mode applies both boundaries (`StorCtl_Mod = 3`) to the signed power interval:
+
+| Settings | InWRte | OutWRte |
+| --- | --- | --- |
+| Both minima zero | maximum charge / WChaMax × 100 | maximum discharge / WChaMax × 100 |
+| Positive minimum charge | maximum charge / WChaMax × 100 | −minimum charge / WChaMax × 100 |
+| Positive minimum discharge | −minimum discharge / WChaMax × 100 | maximum discharge / WChaMax × 100 |
+
+A positive minimum forces its direction, excluding the opposite direction;
+the opposite maximum remains saved. Both positive minima, minima greater than
+maxima, and values outside the reference range are rejected. Watt targets that
+cannot be encoded exactly at the current register scale factor are rejected
+before any write, rather than rounded to weaken a requested constraint.
+
+Mode changes and manual edits preflight every policy and encoded register value
+before writing. One coordinator I/O lock covers the full sequence and prevents
+polling between steps. The sequence disables external limits, broadens both
+boundaries to +100%, sets manual boundaries if requested, and enables manual
+limits last. Every step requires read-back verification, with one refresh after
+success. External limits are temporarily inactive during the transition; this
+is not Modbus atomicity and does not exclude other Modbus clients. A failure
+stops the sequence, reports verified steps and the uncertain register, and does
+not attempt rollback. Saved settings are updated only after verified success.
+Inverter and BMS limits remain authoritative.
+
+### Coexistence with expert and external writes
+
+HLC is the normal interface; low-level controls (LLC) are the expert interface
+and remain disabled by default. Both integration write paths use the same Write
+Policy and coordinator I/O lock. **The last explicit write wins.** An LLC write
+cannot interleave with an HLC sequence, but may run immediately afterwards.
+Independent external Modbus clients cannot be locked out.
+
+Minimum reserve and grid-charging permission always display confirmed inverter
+values, including LLC changes and external changes observed by polling. The
+four watt settings and selected HLC operating mode remain independent user
+configuration: raw rate/mode writes do not replace them. Initially the selected
+HLC mode is automatic; it does not change just because the inverter is manual.
+For example, HLC Operating mode may remain manual while status shows an override.
+
+| Storage control status | Meaning |
+| --- | --- |
+| `automatic` | Confirmed neutral state: mode 0 and both rates +100%. |
+| `manual_hlc` | All three registers match the last completely verified HLC manual target. |
+| `low_level_override` | A valid confirmed state differs from a known HLC target. This does not identify the writer. |
+| `unknown` | Missing/invalid/unsupported data, an impossible active window, or a non-neutral state without a known HLC target. |
+
+Only active boundaries determine whether a window is valid. Neutral automatic
+state takes precedence even if the saved HLC mode is manual. During a device
+outage Home Assistant marks the sensor unavailable; its classifier returns
+unknown until confirmed data is available again.
+
+Polling only observes changes; it never restores HLC targets. Editing a watt
+setting in selected manual mode or explicitly selecting manual again validates
+all four settings and reapplies the complete window. Editing watts in selected
+automatic mode only saves them, even when actual state shows an override.
+Explicitly selecting automatic applies the complete neutral target.
+
+The integration persists the selected mode and the last three successfully
+applied register values alongside the watt settings. These minimal target values
+are needed because changed `WChaMax` or automatic-mode watt edits prevent safely
+reconstructing the historical target from settings alone. A partial failure
+preserves the previous target and its error details; the next poll classifies
+actual state. Startup loads configuration without writing, then classifies the
+inverter after reading it. Initial watt-only development storage is retained,
+without inventing an applied target. Continuous enforcement belongs to the
+future Energy Manager, not these controls.
+
 ## For advanced users: low-level register controls
 
 NUMBER and SELECT entities expose safely representable low-level writable
@@ -142,8 +227,11 @@ are rejected before Modbus I/O. Invalid policy never falls back to permissive
 defaults.
 
 The packaged policy explicitly lists all 25 writable Model 123/124 registers.
-Only Model 124 `MinRsvPct` and `ChaGriSet` are write-enabled by default. Other
-supported controls require explicit operator approval.
+Model 124 `MinRsvPct` (policy range 5–100%), `ChaGriSet`, `StorCtl_Mod`,
+`InWRte`, and `OutWRte` are write-enabled by default. All low-level writable
+entities remain disabled in the Entity Registry. Existing installation policies
+are intentionally not migrated in this beta; during development, delete the
+installation policy manually and reload to recreate the new default.
 
 ### Storage control and forced charging/discharging
 

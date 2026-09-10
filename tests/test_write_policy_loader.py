@@ -27,7 +27,13 @@ def test_shipped_default_contains_exact_intended_approvals() -> None:
     assert sum(model_id == 124 for model_id, _ in policies) == 7
     assert {
         coordinate for coordinate, policy in policies.items() if policy.enabled
-    } == {(124, "MinRsvPct"), (124, "ChaGriSet")}
+    } == {
+        (124, "MinRsvPct"),
+        (124, "ChaGriSet"),
+        (124, "StorCtl_Mod"),
+        (124, "InWRte"),
+        (124, "OutWRte"),
+    }
     assert all(
         policy.minimum is None
         and policy.maximum is None
@@ -35,9 +41,11 @@ def test_shipped_default_contains_exact_intended_approvals() -> None:
         and policy.allowed_enum_values is None
         and policy.allowed_bit_mask is None
         for policy in policies.values()
+        if policy.register_name != "MinRsvPct"
     )
     reserve = policies[(124, "MinRsvPct")]
     assert reserve.enabled
+    assert (reserve.minimum, reserve.maximum) == (5, 100)
     charging_source = policies[(124, "ChaGriSet")]
     assert charging_source.enabled
     document = yaml.safe_load(DEFAULT_POLICY_PATH.read_text(encoding="utf-8"))
@@ -46,7 +54,9 @@ def test_shipped_default_contains_exact_intended_approvals() -> None:
         for registers in document["models"].values()
         for settings in registers.values()
     ]
-    assert all(set(settings) == {"enabled"} for settings in entries)
+    assert all(
+        set(settings) <= {"enabled", "minimum", "maximum"} for settings in entries
+    )
     assert not document["models"][123]["WMaxLimPct_RmpTms"]["enabled"]
     assert not document["models"][124]["VAChaMax"]["enabled"]
 
@@ -141,9 +151,7 @@ def test_minimum_reserve_policy_can_match_or_narrow_hard_range(
     """Installation bounds may match or narrow the authoritative hard range."""
     policies = load_write_policy_text(
         policy_yaml(
-            "    MinRsvPct:\n"
-            f"      minimum: {minimum}\n"
-            f"      maximum: {maximum}\n"
+            f"    MinRsvPct:\n      minimum: {minimum}\n      maximum: {maximum}\n"
         )
     )
     assert policies[(124, "MinRsvPct")].minimum == minimum
@@ -164,9 +172,7 @@ def test_minimum_reserve_policy_cannot_broaden_hard_range(
     with pytest.raises(WritePolicyLoadError, match=message):
         load_write_policy_text(
             policy_yaml(
-                "    MinRsvPct:\n"
-                f"      minimum: {minimum}\n"
-                f"      maximum: {maximum}\n"
+                f"    MinRsvPct:\n      minimum: {minimum}\n      maximum: {maximum}\n"
             )
         )
 
@@ -231,9 +237,7 @@ def test_valid_enum_subset_resolves_labels_and_numeric_values() -> None:
         policy_yaml(f"    ChaGriSet:\n      values:\n        - {label}\n")
     )
     assert policies[(124, "ChaGriSet")].allowed_enum_values == frozenset({0})
-    numeric = load_write_policy_text(
-        policy_yaml("    ChaGriSet:\n      values: [1]\n")
-    )
+    numeric = load_write_policy_text(policy_yaml("    ChaGriSet:\n      values: [1]\n"))
     assert numeric[(124, "ChaGriSet")].allowed_enum_values == frozenset({1})
 
 

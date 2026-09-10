@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import CoreState
 
 from custom_components.fronius_pv_manager.sunspec import (
     SUNSPEC_BASE_TRANSPORT_ADDRESS,
@@ -72,6 +73,8 @@ class FakeHass:
     def __init__(self, *, config_dir: Path | None = None) -> None:
         self.executor_jobs: list[Callable] = []
         self.is_stopping = False
+        self.data = {}
+        self.state = CoreState.running
         self.config_entries = FakeConfigEntries()
         self.config = FakeConfig(config_dir or Path(tempfile.mkdtemp()))
 
@@ -91,6 +94,7 @@ class FakeConfig:
 
     def __init__(self, root: Path) -> None:
         self.root = root
+        self.config_dir = str(root)
 
     def path(self, *parts: str) -> str:
         """Return one path below the synthetic config directory."""

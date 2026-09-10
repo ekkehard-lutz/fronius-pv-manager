@@ -7,6 +7,13 @@ releases will use semantic versioning.
 
 ### Added
 
+- Storage-control status and explicit HLC/LLC coexistence: last explicit write
+  wins, with persistent HLC mode/target and no automatic override enforcement.
+- High-level Model 124 storage controls with persistent watt constraints,
+  English/German names, and prevalidated, serialized, verified write sequences.
+- Default write approval for storage mode/rate registers and a 5–100% reserve
+  policy range, without migrating installation policies.
+
 - Initial Fronius PV Manager project structure.
 - MIT license and Home Assistant/HACS metadata.
 - English and German localization foundation.

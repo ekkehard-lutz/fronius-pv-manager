@@ -67,14 +67,20 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     ]
     assert endpoint.connect_calls == 1
     assert hass.config_entries.forwarded == [
-        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
+        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.SWITCH))
     ]
     assert len(entry.runtime_data.write_policies) == 25
     assert {
         coordinate
         for coordinate, policy in entry.runtime_data.write_policies.items()
         if policy.enabled
-    } == {(124, "MinRsvPct"), (124, "ChaGriSet")}
+    } == {
+        (124, "MinRsvPct"),
+        (124, "ChaGriSet"),
+        (124, "StorCtl_Mod"),
+        (124, "InWRte"),
+        (124, "OutWRte"),
+    }
 
 
 @pytest.mark.asyncio
@@ -84,9 +90,7 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     """Invalid operator YAML fails closed without disabling read-only polling."""
     policy_path = tmp_path / "fronius_pv_manager" / "write_policy.yaml"
     policy_path.parent.mkdir()
-    invalid_content = (
-        "version: 1\nmodels:\n  124:\n    ChaGriSet:\n      values: [2]\n"
-    )
+    invalid_content = "version: 1\nmodels:\n  124:\n    ChaGriSet:\n      values: [2]\n"
     policy_path.write_text(invalid_content, encoding="utf-8")
     registers, _ = model_chain((124, 24))
     transport = FakeTransport(registers)
@@ -109,7 +113,11 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
         hass, entry, lambda items: numbers.extend(items)
     )
     await select_module.async_setup_entry(
-        hass, entry, lambda items: selects.extend(items)
+        hass,
+        entry,
+        lambda items: selects.extend(
+            item for item in items if isinstance(item, select_module.FroniusPVSelect)
+        ),
     )
     await sensor_module.async_setup_entry(
         hass, entry, lambda items: sensors.extend(items)
@@ -139,7 +147,6 @@ async def test_temporary_connection_failure_loads_entry(
     assert endpoint.close_calls == 1
 
 
-
 @pytest.mark.asyncio
 async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     monkeypatch,
@@ -159,7 +166,7 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
     assert hass.config_entries.unloaded == [
-        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
+        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.SWITCH))
     ]
 
 

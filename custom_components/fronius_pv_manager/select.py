@@ -18,6 +18,7 @@ from .coordinator import FroniusPVCoordinator
 from .models import EntityPlatform
 from .number import _entity_category
 from .sensor import _device_info
+from .storage_entity import StorageEntity, setup_storage_entities
 
 
 async def async_setup_entry(
@@ -26,6 +27,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create catalog select entities independently of write policy."""
+    setup_storage_entities(entry, async_add_entities, _storage_modes)
     coordinator = entry.runtime_data
     known: set[str] = set()
 
@@ -171,3 +173,26 @@ def _policy_options(source: ControlEntitySource) -> dict[str, int]:
     policy = source.policy if source.policy and source.policy.enabled else None
     allowed = policy.allowed_enum_values if policy else None
     return {str(raw): raw for raw in documented if allowed is None or raw in allowed}
+
+
+class StorageMode(StorageEntity, SelectEntity):
+    """Select a verified storage mode without discarding watt settings."""
+
+    _attr_options = ["automatic", "manual"]
+
+    @property
+    def current_option(self):
+        try:
+            self.control.snapshot(self._source.device_id)
+            return self.control.mode(self._source.device_id)
+        except ServiceValidationError:
+            return None
+
+    async def async_select_option(self, option):
+        if option not in self.options:
+            raise ServiceValidationError("unknown storage operating mode")
+        await self.change(mode=option)
+
+
+def _storage_modes(coordinator, entry_id, source):
+    return [StorageMode(coordinator, entry_id, source, "operating_mode")]

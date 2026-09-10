@@ -49,6 +49,7 @@
   },
   "entity": {
     "sensor": {
+      "control_status": {"name": "Storage control status", "state": {"automatic": "Automatic", "manual_hlc": "Manual (HLC)", "low_level_override": "Override of HLC target", "unknown": "Unknown"}},
       "model_103_a": {
         "name": "AC current"
       },
@@ -656,7 +657,13 @@
         "name": "Phase C AC power"
       }
     },
+    "switch": {"grid_charging_allowed": {"name": "Grid charging allowed"}},
     "number": {
+      "minimum_reserve": {"name": "Minimum reserve"},
+      "minimum_charge_power": {"name": "Minimum battery charge power"},
+      "maximum_charge_power": {"name": "Maximum battery charge power"},
+      "minimum_discharge_power": {"name": "Minimum battery discharge power"},
+      "maximum_discharge_power": {"name": "Maximum battery discharge power"},
       "model_123_conn_wintms": {"name": "Register connection time window"},
       "model_123_conn_rvrttms": {"name": "Register connection reversion timeout"},
       "model_123_wmaxlimpct": {"name": "Register maximum power output setting"},
@@ -676,6 +683,7 @@
       "model_124_inoutwrte_rvrttms": {"name": "Register charge/discharge reversion timeout"}
     },
     "select": {
+      "operating_mode": {"name": "Operating mode", "state": {"automatic": "Automatic", "manual": "Manual"}},
       "model_123_conn": {
         "name": "Register connection control",
         "state": {"0": "Disconnected", "1": "Connected"}

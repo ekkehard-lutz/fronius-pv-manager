@@ -71,7 +71,7 @@ models:
       # 1 = charge limit active; InWRte applies.
       # 2 = discharge limit active; OutWRte applies.
       # 3 = charge and discharge limits active; InWRte and OutWRte apply.
-      enabled: false
+      enabled: true
     VAChaMax:
       # Maximum charging apparent-power setpoint. Type: uint16; unit: VA.
       # Scale factor: VAChaMax_SF. No semantic hard range is documented.
@@ -82,16 +82,18 @@ models:
       # Minimum storage reserve. Type: uint16; unit: % WChaMax.
       # Scale: MinRsvPct_SF. Hard range: 0 .. 100 %.
       enabled: true
+      minimum: 5
+      maximum: 100
     OutWRte:
       # Maximum discharge rate. Type: int16; unit: % WChaMax.
       # Scale: InOutWRte_SF; hard range: -100 .. 100 percent.
       # Fronius rejects invalid charge/discharge power windows with exception 3.
-      enabled: false
+      enabled: true
     InWRte:
       # Maximum charge rate. Type: int16; unit: % WChaMax.
       # Scale: InOutWRte_SF; hard range: -100 .. 100 percent.
       # Fronius rejects invalid charge/discharge power windows with exception 3.
-      enabled: false
+      enabled: true
     InOutWRte_RvrtTms:
       # Charge/discharge timeout. Type: uint16; unit: s; hard range: 0 .. 28800.
       enabled: false

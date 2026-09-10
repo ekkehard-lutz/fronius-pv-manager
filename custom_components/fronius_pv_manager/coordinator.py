@@ -15,6 +15,7 @@ from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .model_decoder import DecodedModel, decode_model
 from .models import DiscoveredModel, SunSpecModelDefinition
 from .register_maps import get_model_definition
+from .storage_control import StorageControl
 from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
 from .topology import CONF_TOPOLOGY, model_topology, restore_model
 from .transport import (
@@ -114,6 +115,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         # independent TCP sessions outside Home Assistant's control.
         self._io_lock = asyncio.Lock()
         self.write_runtime = FroniusPVWriteRuntime(self)
+        self.storage_control = StorageControl(self)
 
     @property
     def io_lock(self) -> asyncio.Lock:

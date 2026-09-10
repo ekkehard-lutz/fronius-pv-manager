@@ -110,6 +110,10 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create cached sensors and add newly discovered sources during polling."""
+    # Import after sensor metadata helpers are defined: storage discovery shares them.
+    from .storage_status import setup_storage_status
+
+    setup_storage_status(entry, async_add_entities)
     coordinator = entry.runtime_data
     known: set[str] = set()
 

@@ -9,7 +9,10 @@ from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.fronius_pv_manager.models import PhysicalDeviceRole
 from custom_components.fronius_pv_manager.register_maps import MODEL_124
-from custom_components.fronius_pv_manager.select import async_setup_entry
+from custom_components.fronius_pv_manager.select import (
+    FroniusPVSelect,
+    async_setup_entry,
+)
 from custom_components.fronius_pv_manager.write_policy import WritePolicy
 from custom_components.fronius_pv_manager.write_policy_loader import (
     DEFAULT_POLICY_PATH,
@@ -40,7 +43,11 @@ async def select_entities(policy: WritePolicy | None):
     entry.runtime_data = coordinator
     entities = []
     await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+        coordinator.hass,
+        entry,
+        lambda items: entities.extend(
+            item for item in items if isinstance(item, FroniusPVSelect)
+        ),
     )
     return coordinator, entities
 
@@ -60,7 +67,11 @@ async def test_default_policy_exposes_one_storage_select() -> None:
     entities = []
 
     await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+        coordinator.hass,
+        entry,
+        lambda items: entities.extend(
+            item for item in items if isinstance(item, FroniusPVSelect)
+        ),
     )
 
     assert len(entities) == 2
@@ -169,9 +180,7 @@ async def test_pv_selection_writes_authoritative_raw_zero() -> None:
 @pytest.mark.asyncio
 async def test_verification_failure_does_not_publish_requested_option() -> None:
     """A failed readback retains the last coordinator-confirmed select state."""
-    policy = WritePolicy(
-        124, "ChaGriSet", allowed_enum_values=frozenset({0, 1})
-    )
+    policy = WritePolicy(124, "ChaGriSet", allowed_enum_values=frozenset({0, 1}))
     coordinator = ControlCoordinator(
         {(124, "ChaGriSet"): policy}, transport=FailingReadBackTransport()
     )
@@ -179,7 +188,11 @@ async def test_verification_failure_does_not_publish_requested_option() -> None:
     entry.runtime_data = coordinator
     entities = []
     await async_setup_entry(
-        coordinator.hass, entry, lambda items: entities.extend(items)
+        coordinator.hass,
+        entry,
+        lambda items: entities.extend(
+            item for item in items if isinstance(item, FroniusPVSelect)
+        ),
     )
     entity = by_register(entities, "ChaGriSet")
 
@@ -226,15 +239,14 @@ def test_select_option_translations_match_stable_keys_and_enum_semantics() -> No
         "1": "GRID (Netzladung aktiviert)",
     }
 
-    assert resources["source"]["entity"]["select"]["model_124_chagriset"][
-        "state"
-    ] == english
-    assert resources["en"]["entity"]["select"]["model_124_chagriset"][
-        "state"
-    ] == english
-    assert resources["de"]["entity"]["select"]["model_124_chagriset"][
-        "state"
-    ] == german
+    assert (
+        resources["source"]["entity"]["select"]["model_124_chagriset"]["state"]
+        == english
+    )
+    assert (
+        resources["en"]["entity"]["select"]["model_124_chagriset"]["state"] == english
+    )
+    assert resources["de"]["entity"]["select"]["model_124_chagriset"]["state"] == german
     register = next(item for item in MODEL_124.registers if item.name == "ChaGriSet")
     assert register.enum == {0: PV_LABEL, 1: GRID_LABEL}
 
@@ -264,9 +276,10 @@ def test_storage_limit_activation_translations_match_raw_combinations() -> None:
     }
 
     for language in ("source", "en"):
-        assert resources[language]["entity"]["select"]["model_124_storctl_mod"][
-            "state"
-        ] == english
-    assert resources["de"]["entity"]["select"]["model_124_storctl_mod"][
-        "state"
-    ] == german
+        assert (
+            resources[language]["entity"]["select"]["model_124_storctl_mod"]["state"]
+            == english
+        )
+    assert (
+        resources["de"]["entity"]["select"]["model_124_storctl_mod"]["state"] == german
+    )

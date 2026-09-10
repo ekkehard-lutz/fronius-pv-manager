@@ -49,6 +49,7 @@
   },
   "entity": {
     "sensor": {
+      "control_status": {"name": "Speichersteuerungsstatus", "state": {"automatic": "Automatisch", "manual_hlc": "Manuell (HLC)", "low_level_override": "Abweichung vom HLC-Ziel", "unknown": "Unbekannt"}},
       "model_103_a": {
         "name": "AC-Strom"
       },
@@ -656,7 +657,13 @@
         "name": "AC-Leistung Phase L3"
       }
     },
+    "switch": {"grid_charging_allowed": {"name": "Netzladung erlaubt"}},
     "number": {
+      "minimum_reserve": {"name": "Mindestreserve"},
+      "minimum_charge_power": {"name": "Minimale Speicher-Ladeleistung"},
+      "maximum_charge_power": {"name": "Maximale Speicher-Ladeleistung"},
+      "minimum_discharge_power": {"name": "Minimale Speicher-Entladeleistung"},
+      "maximum_discharge_power": {"name": "Maximale Speicher-Entladeleistung"},
       "model_123_conn_wintms": {"name": "Register Zeitfenster für die Verbindung"},
       "model_123_conn_rvrttms": {"name": "Register Rückfallzeit für die Verbindung"},
       "model_123_wmaxlimpct": {"name": "Register maximale Ausgangsleistung"},
@@ -676,6 +683,7 @@
       "model_124_inoutwrte_rvrttms": {"name": "Register Rückfallzeit für Laden und Entladen"}
     },
     "select": {
+      "operating_mode": {"name": "Betriebsmodus", "state": {"automatic": "Automatisch", "manual": "Manuell"}},
       "model_123_conn": {
         "name": "Register Verbindungssteuerung",
         "state": {"0": "Getrennt", "1": "Verbunden"}

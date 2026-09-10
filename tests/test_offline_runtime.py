@@ -10,9 +10,11 @@ from custom_components.fronius_pv_manager import (
     number,
     select,
     sensor,
+    switch,
 )
 from custom_components.fronius_pv_manager.config_flow import _validate_endpoint
 from custom_components.fronius_pv_manager.const import CONF_DEVICE_IDS, CONF_HOST
+from custom_components.fronius_pv_manager.storage_status import StorageControlStatus
 from custom_components.fronius_pv_manager.topology import CONF_TOPOLOGY
 from custom_components.fronius_pv_manager.transport import ModbusTransportError
 from tests.runtime_fakes import FakeEntry, FakeHass, FakeTransport, model_chain
@@ -22,6 +24,7 @@ from tests.test_init import install_endpoint_factory
 def configured_devices():
     """Include storage and repeating modules on the inverter's own unit."""
     registers, bases = model_chain((1, 65), (103, 50), (124, 24), (160, 48))
+    registers[bases[124]] = 6000
     for index, name in enumerate(("MPPT1", "StCha")):
         raw = name.encode().ljust(16, b"\0")
         for offset in range(8):
@@ -35,7 +38,7 @@ def configured_devices():
 async def load_platforms(hass, entry):
     """Create real entity classes and retain automatic additions."""
     entities = []
-    for platform in (sensor, number, select):
+    for platform in (sensor, number, select, switch):
         await platform.async_setup_entry(hass, entry, entities.extend)
     return entities
 
@@ -71,8 +74,12 @@ async def test_validated_offline_start_and_repeated_recovery(monkeypatch, offlin
     assert entities
     assert {type(entity) for entity in entities} == {
         sensor.FroniusPVSensor,
+        StorageControlStatus,
         number.FroniusPVNumber,
         select.FroniusPVSelect,
+        number.StorageNumber,
+        select.StorageMode,
+        switch.GridChargingSwitch,
     }
     assert {entity._source.device_id for entity in entities} == {7, 42}
     assert any(entity._source.block_name == "module" for entity in entities)
@@ -82,10 +89,15 @@ async def test_validated_offline_start_and_repeated_recovery(monkeypatch, offlin
         if entity._source.device_id in offline:
             value = (
                 entity.current_option
-                if isinstance(entity, select.FroniusPVSelect)
+                if isinstance(entity, (select.FroniusPVSelect, select.StorageMode))
+                else entity.is_on
+                if isinstance(entity, switch.GridChargingSwitch)
                 else entity.native_value
             )
-            assert value is None
+            if isinstance(entity, StorageControlStatus):
+                assert value == "unknown"
+            else:
+                assert value is None
     for transport in transports.values():
         transport.connection_error = False
     await coordinator.async_refresh()

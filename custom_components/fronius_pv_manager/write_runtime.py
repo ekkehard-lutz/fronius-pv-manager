@@ -124,6 +124,78 @@ class FroniusPVWriteRuntime:
         await self._coordinator.async_request_refresh()
         return FroniusPVWriteResult(device_id, policy, result)
 
+    async def async_write_sequence(self, device_id, requests):
+        """Preflight every step, then execute under one polling/write lock.
+
+        No rollback or Modbus atomicity is promised. Cancellation waits for the
+        executor to finish before releasing the I/O lock.
+        """
+        import asyncio
+
+        requests = tuple(requests)
+        async with self._coordinator.io_lock:
+            job = asyncio.ensure_future(
+                self._coordinator.hass.async_add_executor_job(
+                    self._sequence_once, device_id, requests
+                )
+            )
+            try:
+                results = await asyncio.shield(job)
+            except asyncio.CancelledError:
+                try:
+                    await job
+                finally:
+                    raise
+        await self._coordinator.async_request_refresh()
+        return results
+
+    def _sequence_once(self, device_id, requests):
+        transport = self._coordinator.transports.get(device_id)
+        if transport is None:
+            raise WriteDeviceNotConfiguredError(f"device {device_id} is not configured")
+        discovered = self._coordinator.discovered_models_by_device.get(device_id, ())
+        plans = []
+        for model_id, name, value in requests:
+            if sum(model.model_id == model_id for model in discovered) != 1:
+                raise WriteModelNotDiscoveredError(
+                    "sequence requires one unambiguous model"
+                )
+            policy = self._coordinator.write_policies.get((model_id, name))
+            if policy is None or not policy.enabled:
+                raise WriteNotApprovedError(f"writes disabled for {model_id}:{name}")
+            try:
+                validate_policy_value(policy, resolve_policy_definition(policy), value)
+                plan = prepare_register_write(
+                    transport, discovered, model_id, name, value
+                )
+            except (WritePolicyError, RegisterWriteError) as err:
+                raise WriteInvalidValueError(str(err)) from err
+            except ModbusTransportError as err:
+                raise WriteTransportError(
+                    "sequence preparation failed; no writes attempted"
+                ) from err
+            plans.append((policy, plan))
+        results = []
+        for index, (policy, plan) in enumerate(plans):
+            try:
+                result = execute_register_write(transport, plan)
+                if not result.verified:
+                    raise WriteVerificationMismatchError("read-back mismatch")
+            except (
+                ModbusTransportError,
+                RegisterWriteError,
+                FroniusPVWriteError,
+            ) as err:
+                raise WriteSequenceError(
+                    f"sequence failed at step {index + 1} ({plan.register.name}); "
+                    f"{index} steps verified, failed step may have applied; "
+                    "device state uncertain; no rollback attempted",
+                    tuple(results),
+                    plan.register.name,
+                ) from err
+            results.append(FroniusPVWriteResult(device_id, policy, result))
+        return tuple(results)
+
     @staticmethod
     def _write_once(transport, discovered, policy, value) -> RegisterWriteResult:
         """Prepare immediately, perform one write, and classify failures."""
@@ -145,3 +217,12 @@ class FroniusPVWriteRuntime:
             raise WriteReadBackError(str(err)) from err
         except ModbusTransportError as err:
             raise WriteTransportError("register write failed") from err
+
+
+class WriteSequenceError(FroniusPVWriteError):
+    """A partial sequence with explicit verified progress and uncertain step."""
+
+    def __init__(self, message, completed, failed_register):
+        super().__init__(message)
+        self.completed = completed
+        self.failed_register = failed_register

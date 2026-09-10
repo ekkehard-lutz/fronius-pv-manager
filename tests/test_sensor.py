@@ -161,7 +161,7 @@ def _model_1_payload(
 
 
 @pytest.mark.asyncio
-async def test_setup_creates_only_catalog_sensor_entities() -> None:
+async def test_setup_creates_catalog_sensors_and_storage_control_status() -> None:
     """Scale factors and non-sensor catalog entries do not create sensors."""
     _, entities, _ = await _entities_for(_snapshot(MODEL_103), _snapshot(MODEL_124))
 
@@ -172,7 +172,8 @@ async def test_setup_creates_only_catalog_sensor_entities() -> None:
         for definition in (MODEL_103, MODEL_124)
         for register in definition.registers
     )
-    assert len(entities) == expected
+    assert len(entities) == expected + 1
+    assert sum(isinstance(entity, FroniusPVSensor) for entity in entities) == expected
     assert not _by_register(entities, "W_SF")
     assert not _by_register(entities, "ChaGriSet")
 

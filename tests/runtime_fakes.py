@@ -67,24 +67,6 @@ class FakeFlowManager:
         """Accept discovery-flow abort requests."""
 
 
-class FakeServices:
-    """Store registered service handlers and their schemas."""
-
-    def __init__(self):
-        self.handlers = {}
-        self.registrations = 0
-
-    def has_service(self, domain, name):
-        return (domain, name) in self.handlers
-
-    def async_register(self, domain, name, handler, *, schema):
-        self.registrations += 1
-        self.handlers[domain, name] = (handler, schema)
-
-    def async_remove(self, domain, name):
-        self.handlers.pop((domain, name), None)
-
-
 class FakeHass:
     """Provide executor delegation required by the coordinator."""
 
@@ -92,7 +74,6 @@ class FakeHass:
         self.executor_jobs: list[Callable] = []
         self.is_stopping = False
         self.data = {}
-        self.services = FakeServices()
         self.state = CoreState.running
         self.config_entries = FakeConfigEntries()
         self.config = FakeConfig(config_dir or Path(tempfile.mkdtemp()))

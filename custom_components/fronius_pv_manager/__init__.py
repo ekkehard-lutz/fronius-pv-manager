@@ -17,10 +17,6 @@ from .const import (
     DEFAULT_UNIT_ID,
 )
 from .coordinator import FroniusPVCoordinator
-from .debug_services import (
-    async_register_debug_services,
-    async_unregister_debug_services,
-)
 from .transport import ModbusTcpEndpointTransport, ModbusTransportError
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
@@ -72,9 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
         await coordinator.storage_control.async_load()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_refresh()
-        async_register_debug_services(hass, entry)
     except Exception:
-        async_unregister_debug_services(hass, entry)
         await coordinator.storage_control.async_shutdown()
         await coordinator.async_shutdown()
         try:
@@ -95,7 +89,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -
         return False
 
     coordinator = entry.runtime_data
-    async_unregister_debug_services(hass, entry)
     await coordinator.storage_control.async_shutdown()
     await coordinator.async_shutdown()
     try:

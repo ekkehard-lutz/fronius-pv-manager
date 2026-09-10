@@ -59,7 +59,6 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     assert await async_setup_entry(hass, entry)
 
     assert factory_calls == [("192.0.2.30", 1502)]
-    assert len(hass.services.handlers) == 6
     assert isinstance(entry.runtime_data, FroniusPVCoordinator)
     assert entry.runtime_data.last_update_success
     assert [model.model_id for model in entry.runtime_data.data.discovered_models] == [
@@ -163,7 +162,6 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
 
     assert await async_unload_entry(hass, entry)
 
-    assert not hass.services.handlers
     assert coordinator._shutdown_requested
     assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
@@ -202,7 +200,6 @@ async def test_platform_forwarding_failure_rolls_back_runtime(monkeypatch) -> No
 
     assert endpoint.close_calls == 0
     assert endpoint.connect_calls == 0
-    assert not hass.services.handlers
     assert not hasattr(entry, "runtime_data")
 
 
@@ -220,7 +217,6 @@ async def test_failed_platform_unload_keeps_runtime_active(monkeypatch) -> None:
 
     assert not await async_unload_entry(hass, entry)
 
-    assert len(hass.services.handlers) == 6
     assert entry.runtime_data is coordinator
     assert not coordinator._shutdown_requested
     assert endpoint.close_calls == 0

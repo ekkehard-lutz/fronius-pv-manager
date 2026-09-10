@@ -5,6 +5,19 @@ releases will use semantic versioning.
 
 ## [Unreleased]
 
+### Development verification
+
+- Real GEN24 hardware testing reported successful remote acquisition, HLC
+  exclusivity, complete remote power-window updates, heartbeat lease renewal,
+  remote Minimum Reserve and Grid Charging Allowed writes, and explicit release.
+- Explicit release and watchdog expiry both returned to Automatic and restored
+  pre-remote reserve, grid permission, and the saved user power profile on the
+  tested GEN24 setup. These results do not establish behavior for all hardware,
+  firmware, battery configurations, or operating conditions.
+- Removed the temporary Home Assistant hardware-test harness after verification.
+  The supported Energy Manager interface is the programmatic storage-control API,
+  now documented in the README Developer API section.
+
 ### Fixed
 
 - Positive HLC minimum charge/discharge commands clear the opposite minimum
@@ -32,8 +45,6 @@ releases will use semantic versioning.
 
 - Extend live remote ownership to minimum reserve and grid-charging HLC writes;
   owner-checked APIs use Write Policy and renew the lease only after success.
-- Temporary development-only remote hardware-test actions with validated inputs,
-  safe multi-entry routing, and lifecycle cleanup; remove before stable v0.3.0.
 
 - Complete semantic PowerSettings update API sharing the validated, quantized,
   locked and read-back-verified HLC write path.

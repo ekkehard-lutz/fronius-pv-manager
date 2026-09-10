@@ -117,7 +117,7 @@ Optional or repeated instances that are not physically present are not invented.
 Report reproducible issues through the
 [issue tracker](https://github.com/ekkehard-lutz/fronius-pv-manager/issues).
 
-## Storage controls (v0.3.0-beta.1 foundation)
+## Storage controls (v0.3.0-beta.2)
 
 Seven enabled-by-default controls are the normal storage interface: minimum
 reserve (5–100%), grid charging allowed, minimum and maximum charge power,
@@ -128,8 +128,8 @@ service charging.
 
 All four power settings use watts and have the range 0–decoded `WChaMax`, even
 when the battery's real technical limit is lower. Initial minima are zero and
-initial maxima are `WChaMax`. User settings are stored per config entry and
-Modbus device in Home Assistant's `.storage` directory. They survive restart
+initial maxima are `WChaMax` (rounded down if it has fractional watts). User
+settings are stored per config entry and Modbus device in Home Assistant's `.storage` directory. They survive restart
 and automatic mode; restarting does not automatically apply them to the device.
 
 Automatic mode writes `StorCtl_Mod = 0`, `InWRte = 100%`, and `OutWRte = 100%`.
@@ -144,9 +144,34 @@ mode applies both boundaries (`StorCtl_Mod = 3`) to the signed power interval:
 
 A positive minimum forces its direction, excluding the opposite direction;
 the opposite maximum remains saved. Both positive minima, minima greater than
-maxima, and values outside the reference range are rejected. Watt targets that
-cannot be encoded exactly at the current register scale factor are rejected
-before any write, rather than rounded to weaken a requested constraint.
+maxima, and values outside the reference range are rejected. Whole-watt settings
+are preserved exactly as entered. When applying a manual target, the integration
+uses the decoded `WChaMax` and `InOutWRte_SF` to quantize register magnitudes:
+maximum constraints round down, minimum constraints round up. The forced-power
+sign is applied afterwards, so quantization never weakens a requested boundary.
+If the resulting minimum exceeds the resulting maximum, no representable window
+exists and the complete request is rejected before any write. Low-level codec
+validation remains strict, including live scale-factor validation at preflight.
+
+For `WChaMax = 10240 W` and `InOutWRte_SF = -2`, each raw step is 1.024 W:
+
+| Requested constraint | Raw percentage magnitude | Percentage magnitude | Effective power |
+| --- | ---: | ---: | ---: |
+| Maximum 1000 W | 976 | 9.76% | 999.424 W |
+| Minimum 1000 W | 977 | 9.77% | 1000.448 W |
+
+The HLC still displays and persists 1000 W. The last applied target stores the
+quantized register percentages, so status can correctly report `manual_hlc`.
+Zero and the ±100% endpoints remain exact for supported rate scales. Scales
+that cannot encode the neutral sequence's ±100% endpoints fail before writing.
+
+The number UI uses whole watts and a step of
+`max(1, ceil(WChaMax × 10^InOutWRte_SF / 100))`, calculated without floating-point
+drift. This is the smallest integer step covering one raw register step: 2 W
+on the tested hardware. Home Assistant's fixed step cannot express the exact
+nonuniform sequence of representable whole-watt settings. Typed whole-watt
+values need not be multiples of the UI step; fractional-watt entries are
+rejected. The upper whole-watt UI bound rounds a fractional `WChaMax` down.
 
 Mode changes and manual edits preflight every policy and encoded register value
 before writing. One coordinator I/O lock covers the full sequence and prevents
@@ -209,12 +234,20 @@ registers from SunSpec Models 123 and 124. They are configuration entities and
 are disabled by default in Home Assistant's Entity Registry. They are not the
 normal user interface for storage or inverter control.
 
-Three independent safety layers apply:
+Disabled LLC entities are a UI default, **not an authorization or security
+boundary**. The integration has no separate expert-user permission mechanism.
+A user with sufficient Home Assistant permission can enable an LLC entity and
+write its register subject to Write Policy and register validation.
+
+These settings have different purposes:
 
 1. **Entity Registry state** controls whether an entity is visible in Home
-   Assistant. Enabling it does not authorize a write.
+   Assistant. Disabling an LLC entity does not prevent internal HLC writes.
+   Enabling it exposes direct writes for any register allowed by Write Policy.
 2. **Installation write policy** explicitly permits or denies writes in
-   `/config/fronius_pv_manager/write_policy.yaml`.
+   `/config/fronius_pv_manager/write_policy.yaml`. An enabled policy means the
+   integration is technically allowed to write the register. HLC internal writes
+   also require the underlying register to be enabled in this policy.
 3. **Register semantics** enforce authoritative access, datatype, range, enum,
    bitfield, scaling, and representation constraints. Policy can narrow these
    constraints but cannot broaden them.

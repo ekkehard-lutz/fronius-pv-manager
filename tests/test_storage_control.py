@@ -73,7 +73,7 @@ def test_invalid_power(watts):
     ],
 )
 def test_manual_windows(settings, expected):
-    target = power_window(settings, 6000, "manual")
+    target = power_window(settings, 6000, "manual", -2)
     assert target == dict(StorCtl_Mod=3, InWRte=expected[0], OutWRte=expected[1])
     assert -target["InWRte"] <= target["OutWRte"]
 
@@ -137,10 +137,11 @@ async def test_sequence_preflights_policy_and_encoding_before_first_write():
         await coordinator.write_runtime.async_write_sequence(1, sequence)
     with pytest.raises(WriteNotApprovedError):
         await coordinator.write_runtime.async_write_sequence(1, [(124, "VAChaMax", 1)])
-    # 1 W / 6000 W cannot be represented by the device's 0.01% resolution.
-    control.settings["1"] = asdict(PowerSettings(0, 1, 0, 6000))
+    # Low-level callers still must supply exactly encodable percentage values.
     with pytest.raises(WriteInvalidValueError):
-        await control.async_change(1, mode="manual")
+        await coordinator.write_runtime.async_write_sequence(
+            1, [(124, "StorCtl_Mod", 0), (124, "InWRte", 0.001)]
+        )
     assert not coordinator.control_transport.write_calls
     assert coordinator.refresh_requests == 0
 
@@ -275,9 +276,9 @@ async def test_entities_localization_ranges_policy_and_verified_switch():
 
 
 @pytest.mark.asyncio
-async def test_entity_converts_encoder_rejection_to_ha_validation_error():
+async def test_entity_rejects_window_with_no_representable_point():
     coordinator, control = controller()
-    control.settings["1"] = asdict(PowerSettings(0, 1, 0, 6000))
+    control.settings["1"] = asdict(PowerSettings(1, 1, 0, 6000))
     entry = FakeEntry({})
     entry.runtime_data = coordinator
     entities = []

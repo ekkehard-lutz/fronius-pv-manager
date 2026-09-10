@@ -5,9 +5,13 @@ import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
+from fractions import Fraction
 
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
+
+from .codec import encode_register_value
+from .register_maps import MODEL_124
 
 
 @dataclass(frozen=True)
@@ -45,40 +49,91 @@ def percent_to_watts(percent: float, reference: float) -> float:
     return float(Decimal(str(percent)) * Decimal(str(reference)) / 100)
 
 
-def power_window(settings: PowerSettings, reference: float, mode: str):
-    """Build boundaries using the signed power convention documented in README.
+_RATE_REGISTER = next(
+    register for register in MODEL_124.registers if register.name == "InWRte"
+)
 
-    The interval is [-InWRte, OutWRte]. A positive minimum excludes the
-    opposite direction; both positive minima cannot describe one interval.
-    """
-    if mode == "automatic":
-        return {"StorCtl_Mod": 0, "InWRte": 100, "OutWRte": 100}
-    values = {
-        key: watts_to_percent(value, reference)
-        for key, value in asdict(settings).items()
-    }
+
+def _rate_resolution(scale_factor: int) -> Fraction:
+    """Return an exact percent step compatible with the complete HLC sequence."""
+    if type(scale_factor) is not int or not -32767 <= scale_factor <= 32767:
+        raise ServiceValidationError(
+            "storage rate scale factor is unavailable or invalid"
+        )
+    try:
+        # The neutral transition requires both signed endpoints to be encodable.
+        # Let the existing register model/codec enforce representation and sentinels.
+        encode_register_value(_RATE_REGISTER, 100, scale_factor)
+        encode_register_value(_RATE_REGISTER, -100, scale_factor)
+    except ValueError as err:
+        raise ServiceValidationError(
+            "storage rate scale cannot represent +/-100%"
+        ) from err
+    return Fraction(10) ** scale_factor
+
+
+def power_ui_step(reference: float, scale_factor: int) -> int:
+    """Smallest positive whole-watt step at least as large as one raw step."""
+    watts_to_percent(0, reference)
+    return max(
+        1, math.ceil(Fraction(str(reference)) * _rate_resolution(scale_factor) / 100)
+    )
+
+
+def validate_power_settings(settings: PowerSettings, reference: float) -> None:
+    """Validate semantic settings without requiring exact register representation."""
+    for value in asdict(settings).values():
+        watts_to_percent(value, reference)
     for direction in ("charge", "discharge"):
-        if values[f"minimum_{direction}_power"] > values[f"maximum_{direction}_power"]:
+        if getattr(settings, f"minimum_{direction}_power") > getattr(
+            settings, f"maximum_{direction}_power"
+        ):
             raise ServiceValidationError("minimum power exceeds maximum power")
     if settings.minimum_charge_power and settings.minimum_discharge_power:
         raise ServiceValidationError(
             "charging and discharging minima cannot both be positive"
         )
+
+
+def power_window(
+    settings: PowerSettings,
+    reference: float,
+    mode: str,
+    scale_factor: int | None = None,
+):
+    """Quantize magnitudes inward, then map to signed [-InWRte, OutWRte]."""
+    if mode == "automatic":
+        return {"StorCtl_Mod": 0, "InWRte": 100, "OutWRte": 100}
     if mode != "manual":
         raise ServiceValidationError("unknown storage operating mode")
-    return {
+    validate_power_settings(settings, reference)
+    resolution = _rate_resolution(scale_factor)
+
+    def magnitude(watts: float, *, minimum: bool) -> float:
+        # Exact rational arithmetic avoids binary/decimal division rounding at
+        # raw integer boundaries. Round the magnitude before applying its sign.
+        raw = Fraction(str(watts)) * 100 / (Fraction(str(reference)) * resolution)
+        integral = math.ceil(raw) if minimum else math.floor(raw)
+        return float(integral * resolution)
+
+    target = {
         "StorCtl_Mod": 3,
         "InWRte": (
-            -values["minimum_discharge_power"]
+            -magnitude(settings.minimum_discharge_power, minimum=True)
             if settings.minimum_discharge_power
-            else values["maximum_charge_power"]
+            else magnitude(settings.maximum_charge_power, minimum=False)
         ),
         "OutWRte": (
-            -values["minimum_charge_power"]
+            -magnitude(settings.minimum_charge_power, minimum=True)
             if settings.minimum_charge_power
-            else values["maximum_discharge_power"]
+            else magnitude(settings.maximum_discharge_power, minimum=False)
         ),
     }
+    if -target["InWRte"] > target["OutWRte"]:
+        raise ServiceValidationError(
+            "no representable power window satisfies the constraints"
+        )
+    return target
 
 
 _POWER_REGISTERS = frozenset({"StorCtl_Mod", "InWRte", "OutWRte"})
@@ -172,12 +227,21 @@ class StorageControl:
         watts_to_percent(0, value)
         return value
 
+    def rate_scale_factor(self, device_id):
+        """Read the currently decoded rate scale; writer preflight rechecks it live."""
+        return self.snapshot(device_id)["InOutWRte_SF"].value
+
+    def power_step(self, device_id) -> int:
+        return power_ui_step(
+            self.reference(device_id), self.rate_scale_factor(device_id)
+        )
+
     def values(self, device_id):
         saved = self.settings.get(str(device_id))
         if saved is not None:
             return PowerSettings(**saved)
         reference = self.reference(device_id)
-        return PowerSettings(0, reference, 0, reference)
+        return PowerSettings(0, math.floor(reference), 0, math.floor(reference))
 
     def mode(self, device_id):
         """Return the selected HLC mode, never a mirror of raw control bits."""
@@ -202,11 +266,25 @@ class StorageControl:
         async with self.lock:
             settings = self.values(device_id)
             if field is not None:
+                if (
+                    type(value) not in (int, float)
+                    or not math.isfinite(value)
+                    or value != int(value)
+                ):
+                    raise ServiceValidationError("power settings require whole watts")
+                value = int(value)
                 settings = replace(settings, **{field: value})
             selected_mode = mode if mode is not None else self.mode(device_id)
             # Automatic release is independent of saved power constraints.
             if field is not None or selected_mode != "automatic":
-                target = power_window(settings, self.reference(device_id), "manual")
+                validate_power_settings(settings, self.reference(device_id))
+            if selected_mode == "manual":
+                target = power_window(
+                    settings,
+                    self.reference(device_id),
+                    "manual",
+                    self.rate_scale_factor(device_id),
+                )
             else:
                 target = power_window(settings, 0, "automatic")
             if selected_mode not in ("automatic", "manual"):

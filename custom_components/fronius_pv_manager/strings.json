@@ -683,7 +683,7 @@
       "model_124_inoutwrte_rvrttms": {"name": "Register charge/discharge reversion timeout"}
     },
     "select": {
-      "operating_mode": {"name": "Operating mode", "state": {"automatic": "Automatic", "manual": "Manual"}},
+      "operating_mode": {"name": "Operating mode", "state": {"automatic": "Automatic", "manual": "Manual", "remote": "Remote"}},
       "model_123_conn": {
         "name": "Register connection control",
         "state": {"0": "Disconnected", "1": "Connected"}

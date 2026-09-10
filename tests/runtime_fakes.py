@@ -83,6 +83,10 @@ class FakeHass:
         """Return the active test event loop."""
         return asyncio.get_running_loop()
 
+    def async_create_task(self, target):
+        """Schedule an integration-owned async task."""
+        return asyncio.create_task(target)
+
     async def async_add_executor_job(self, target, *args):
         """Record and execute one submitted synchronous callable."""
         self.executor_jobs.append(target)

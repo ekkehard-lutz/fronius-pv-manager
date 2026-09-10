@@ -21,6 +21,13 @@ releases will use semantic versioning.
 
 ### Added
 
+- Complete semantic PowerSettings update API sharing the validated, quantized,
+  locked and read-back-verified HLC write path.
+- Programmatic remote mode with per-device ownership, a 90-second heartbeat
+  lease, automatic release/expiry fallback, and manual HLC power UI protection.
+- Watchdog unload cleanup and read-first restart handling: saved remote mode
+  becomes semantic automatic without restoring ownership or writing on startup.
+
 - Storage-control status and explicit HLC/LLC coexistence: last explicit write
   wins, with persistent HLC mode/target and no automatic override enforcement.
 - High-level Model 124 storage controls with persistent watt constraints,

@@ -121,7 +121,7 @@ Report reproducible issues through the
 
 Seven enabled-by-default controls are the normal storage interface: minimum
 reserve (5–100%), grid charging allowed, minimum and maximum charge power,
-minimum and maximum discharge power, and automatic/manual operating mode.
+minimum and maximum discharge power, and automatic/manual/remote operating mode.
 An additional read-only Storage control status sensor shows agreement with the
 last applied HLC target. Grid permission does not prevent Fronius internal or
 service charging.
@@ -232,6 +232,82 @@ actual state. Startup loads configuration without writing, then classifies the
 inverter after reading it. Initial watt-only development storage is retained,
 without inventing an applied target. Continuous enforcement belongs to the
 future Energy Manager, not these controls.
+
+### Programmatic full windows and remote control
+
+The integration-internal API lives on `entry.runtime_data.storage_control`.
+All methods take the configured Modbus `device_id`; owner IDs are coordination
+identifiers, not credentials or an additional security boundary. No HA services
+or Energy Manager strategy are introduced here.
+
+| API | Behavior |
+| --- | --- |
+| `async_set_power_window(device_id, settings)` | Atomically replace the complete semantic profile and enter manual mode when not remotely owned. |
+| `async_acquire_remote_control(device_id, owner_id, settings=None)` | Apply a complete remote profile, then acquire a 90-second lease. If omitted, use current saved settings. A different live owner is rejected. |
+| `async_remote_heartbeat(device_id, owner_id)` | Renew the current live owner's lease without Modbus I/O. |
+| `async_set_remote_power_window(device_id, owner_id, settings)` | Apply a complete profile for the live owner; renew only after success. |
+| `async_release_remote_control(device_id, owner_id)` | Apply the complete neutral automatic target, then release ownership. The owner can also retry a failed release after expiry. |
+| `remote_owner(device_id)` | Return the live owner ID, or `None`. |
+
+`settings` is a `PowerSettings` object containing all four whole-watt values.
+Full-state updates have no implicit directional precedence: callers must supply
+zero for the opposite minimum. Both positive minima are rejected. This differs
+from an explicit single minimum-field edit, which clears its opposite. A complete
+update can change minimum and maximum together (for example, 1000/2000 W to
+3000/4000 W) without exposing an invalid intermediate semantic state.
+
+```python
+from custom_components.fronius_pv_manager.storage_control import PowerSettings
+
+control = entry.runtime_data.storage_control
+profile = PowerSettings(
+    minimum_charge_power=1000, maximum_charge_power=2000,
+    minimum_discharge_power=0, maximum_discharge_power=10240,
+)
+await control.async_acquire_remote_control(1, "energy_manager.entry1", profile)
+await control.async_remote_heartbeat(1, "energy_manager.entry1")
+await control.async_set_remote_power_window(1, "energy_manager.entry1", profile)
+await control.async_release_remote_control(1, "energy_manager.entry1")
+```
+
+Remote mode applies the same Model 124 semantics as manual (`StorCtl_Mod = 3`).
+Only acquisition can enter remote. The HA select displays remote but rejects
+normal selection of it; while owned, selection of automatic/manual and writes
+to the four HLC power numbers also fail with validation errors. Values remain
+visible. Minimum reserve and grid-charging permission remain independently
+writable, as do enabled LLC entities within Write Policy.
+
+Remote updates share the same complete validation, exact quantization, locked,
+ordered and read-back-verified sequence as manual updates. Atomicity here means
+one semantic state update, **not atomic Modbus writes**. Last target and saved
+settings change only after complete success. `manual_hlc` status also denotes
+agreement with a remotely applied HLC profile; it describes register agreement,
+not ownership. LLC/external overrides remain visible, and a heartbeat never
+restores a target. Only an explicit profile command reapplies it.
+
+The fixed lease timeout is **90 seconds**, measured with a monotonic clock.
+A future controller should send heartbeats around every 30 seconds. A one-shot
+HA timer, renewed by heartbeat or a successful remote command, returns storage
+to the complete automatic target on expiry and logs a warning. Release likewise
+always returns to automatic. There is no periodic register rewrite or control
+loop. PV Manager owns device-level control; a future separate Energy Manager
+owns the closed-loop strategy.
+
+If a release or timeout sequence fails, its partial-write error is retained/logged;
+mode and last successful target are not falsely changed to automatic. An expired
+lease cannot heartbeat or submit remote commands. The expired reservation remains
+until verified automatic release succeeds. The owner may retry release; a later
+manual action or acquisition first retries that neutral fail-safe before taking
+control. There is no speculative rollback or unattended repeated write loop.
+
+Owner and heartbeat data are runtime-only. On restart, saved remote mode becomes
+semantic automatic, with no active owner and **no startup write**. The first poll
+observes actual hardware; it may still have the previous manual/remote register
+window. Historical target metadata remains available for status comparison.
+Selecting automatic explicitly releases that hardware state; a new remote
+controller must acquire a fresh lease. Unload cancels watchdogs and drains
+pending HLC operations before closing transport; it does not add an unload
+write or restore ownership on the next setup.
 
 ## For advanced users: low-level register controls
 

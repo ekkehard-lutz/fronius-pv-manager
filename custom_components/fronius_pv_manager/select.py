@@ -178,7 +178,7 @@ def _policy_options(source: ControlEntitySource) -> dict[str, int]:
 class StorageMode(StorageEntity, SelectEntity):
     """Select a verified storage mode without discarding watt settings."""
 
-    _attr_options = ["automatic", "manual"]
+    _attr_options = ["automatic", "manual", "remote"]
 
     @property
     def current_option(self):

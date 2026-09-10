@@ -1,17 +1,31 @@
 """Persistent watt constraints and Model 124 signed power-window translation."""
 
 import asyncio
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 
+from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from .codec import encode_register_value
 from .register_maps import MODEL_124
+
+_LOGGER = logging.getLogger(__name__)
+REMOTE_LEASE_SECONDS = 90
+
+
+@dataclass(frozen=True)
+class RemoteLease:
+    """Runtime-only coordination identity and monotonic deadline."""
+
+    owner_id: str
+    expires_at: float
 
 
 @dataclass(frozen=True)
@@ -176,6 +190,10 @@ class StorageControl:
         self.modes: dict[str, str] = {}
         self.last_targets: dict[str, dict[str, int | float]] = {}
         self.lock = asyncio.Lock()
+        self._leases: dict[int, RemoteLease] = {}
+        self._watchdogs = {}
+        self._watchdog_tasks: set[asyncio.Task] = set()
+        self._closed = False
 
     async def async_load(self):
         """Load integration-owned settings before entities are set up."""
@@ -187,9 +205,9 @@ class StorageControl:
             return
         self.settings = saved["settings"]
         self.modes = {
-            device: mode
+            device: "automatic" if mode == "remote" else mode
             for device, mode in saved.get("modes", {}).items()
-            if mode in ("automatic", "manual")
+            if mode in ("automatic", "manual", "remote")
         }
         self.last_targets = {
             device: target
@@ -256,6 +274,11 @@ class StorageControl:
     async def async_change(self, device_id, *, field=None, value=None, mode=None):
         """Validate, apply if active, then persist settings after verified success."""
         async with self.lock:
+            await self._manual_access(device_id)
+            if mode is not None and mode not in ("automatic", "manual"):
+                raise ServiceValidationError(
+                    "remote mode requires programmatic ownership"
+                )
             settings = self.values(device_id)
             if field is not None:
                 if (
@@ -275,53 +298,244 @@ class StorageControl:
                 # Normalize one complete semantic transition before validation or I/O.
                 settings = replace(settings, **changes)
             selected_mode = mode if mode is not None else self.mode(device_id)
-            # Automatic release is independent of saved power constraints.
-            if field is not None or selected_mode != "automatic":
-                validate_power_settings(settings, self.reference(device_id))
-            if selected_mode == "manual":
-                target = power_window(
-                    settings,
-                    self.reference(device_id),
-                    "manual",
-                    self.rate_scale_factor(device_id),
-                )
-            else:
-                target = power_window(settings, 0, "automatic")
-            if selected_mode not in ("automatic", "manual"):
-                raise ServiceValidationError("unknown storage operating mode")
-            applied = mode is not None or selected_mode == "manual"
-            if applied:
-                # Disable limits, broaden both boundaries, narrow them, then enable.
-                # Every intermediate interval is valid, but this is not atomic Modbus.
-                sequence = [
-                    (124, "StorCtl_Mod", 0),
-                    (124, "InWRte", 100),
-                    (124, "OutWRte", 100),
-                ]
-                if selected_mode == "manual":
-                    sequence.extend(
-                        [
-                            (124, "InWRte", target["InWRte"]),
-                            (124, "OutWRte", target["OutWRte"]),
-                            (124, "StorCtl_Mod", 3),
-                        ]
-                    )
-                await self.coordinator.write_runtime.async_write_sequence(
-                    device_id, sequence
-                )
-            updated = {**self.settings, str(device_id): asdict(settings)}
-            modes = {**self.modes, str(device_id): selected_mode}
-            targets = dict(self.last_targets)
-            if applied:
-                targets[str(device_id)] = target
-            await self.store.async_save(
-                {
-                    "settings": updated,
-                    "modes": modes,
-                    "last_targets": targets,
-                }
+            await self._apply_locked(
+                device_id,
+                settings,
+                selected_mode,
+                apply=mode is not None or selected_mode == "manual",
+                validate=field is not None or selected_mode != "automatic",
             )
-            self.settings = updated
-            self.modes = modes
-            self.last_targets = targets
-            self.coordinator.async_update_listeners()
+
+    async def async_set_power_window(
+        self, device_id: int, settings: PowerSettings
+    ) -> None:
+        """Apply one complete manual profile; requires no remote ownership.
+
+        Unlike a directional field edit, a full state has no ordering/precedence:
+        both positive minima are rejected. This operation enters manual mode.
+        """
+        async with self.lock:
+            await self._manual_access(device_id)
+            await self._apply_locked(device_id, settings, "manual", apply=True)
+
+    async def _apply_locked(self, device_id, settings, mode, *, apply, validate=True):
+        """Shared HLC commit path. Caller holds the semantic state lock."""
+        if validate:
+            if not isinstance(settings, PowerSettings):
+                raise ServiceValidationError(
+                    "a complete PowerSettings object is required"
+                )
+            for value in asdict(settings).values():
+                if (
+                    type(value) not in (int, float)
+                    or not math.isfinite(value)
+                    or value != int(value)
+                ):
+                    raise ServiceValidationError("power settings require whole watts")
+            settings = PowerSettings(
+                **{key: int(value) for key, value in asdict(settings).items()}
+            )
+            validate_power_settings(settings, self.reference(device_id))
+        if mode in ("manual", "remote"):
+            target = power_window(
+                settings,
+                self.reference(device_id),
+                "manual",
+                self.rate_scale_factor(device_id),
+            )
+        else:
+            target = power_window(settings, 0, "automatic")
+        if apply:
+            # One validated, locked sequence; not atomic on the Modbus device.
+            sequence = [
+                (124, "StorCtl_Mod", 0),
+                (124, "InWRte", 100),
+                (124, "OutWRte", 100),
+            ]
+            if mode in ("manual", "remote"):
+                sequence.extend(
+                    [
+                        (124, "InWRte", target["InWRte"]),
+                        (124, "OutWRte", target["OutWRte"]),
+                        (124, "StorCtl_Mod", 3),
+                    ]
+                )
+            await self.coordinator.write_runtime.async_write_sequence(
+                device_id, sequence
+            )
+        updated = {**self.settings, str(device_id): asdict(settings)}
+        modes = {**self.modes, str(device_id): mode}
+        targets = dict(self.last_targets)
+        if apply:
+            targets[str(device_id)] = target
+        await self.store.async_save(
+            {"settings": updated, "modes": modes, "last_targets": targets}
+        )
+        self.settings = updated
+        self.modes = modes
+        self.last_targets = targets
+        self.coordinator.async_update_listeners()
+
+    def _now(self) -> float:
+        return self.coordinator.hass.loop.time()
+
+    def remote_owner(self, device_id: int) -> str | None:
+        """Return only live ownership; owner IDs are not security credentials."""
+        lease = self._leases.get(device_id)
+        return lease.owner_id if lease and self._now() < lease.expires_at else None
+
+    def _ensure_open(self):
+        if self._closed:
+            raise ServiceValidationError("storage control is unloading")
+
+    @staticmethod
+    def _validate_owner_id(owner_id):
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise ServiceValidationError("a nonempty remote owner_id is required")
+
+    def _require_owner(self, device_id, owner_id, *, live=True):
+        self._ensure_open()
+        self._validate_owner_id(owner_id)
+        lease = self._leases.get(device_id)
+        if lease is None or lease.owner_id != owner_id:
+            raise ServiceValidationError("caller does not own remote storage control")
+        if live and self._now() >= lease.expires_at:
+            raise ServiceValidationError("remote storage lease has expired")
+
+    async def _manual_access(self, device_id):
+        self._ensure_open()
+        if device_id in self._leases:
+            if self.remote_owner(device_id) is not None:
+                raise ServiceValidationError(
+                    "Remote storage control is active; this setting is managed "
+                    "by the remote controller."
+                )
+            # An expired lease cannot be stolen or renewed. Finish its fail-safe
+            # release before accepting a new manual action or acquisition.
+            await self._expire_locked(device_id)
+
+    async def async_acquire_remote_control(
+        self,
+        device_id: int,
+        owner_id: str,
+        settings: PowerSettings | None = None,
+    ) -> None:
+        """Acquire/renew ownership after applying a complete verified remote window."""
+        async with self.lock:
+            self._ensure_open()
+            self._validate_owner_id(owner_id)
+            owner = self.remote_owner(device_id)
+            if owner is not None and owner != owner_id:
+                raise ServiceValidationError(
+                    "remote storage control already has a live owner"
+                )
+            if device_id in self._leases and owner is None:
+                await self._expire_locked(device_id)
+            await self._apply_locked(
+                device_id,
+                self.values(device_id) if settings is None else settings,
+                "remote",
+                apply=True,
+            )
+            self._renew(device_id, owner_id)
+
+    async def async_remote_heartbeat(self, device_id: int, owner_id: str) -> None:
+        """Renew a live owner's deadline without reading/writing Modbus."""
+        async with self.lock:
+            self._require_owner(device_id, owner_id)
+            self._renew(device_id, owner_id)
+
+    async def async_set_remote_power_window(
+        self,
+        device_id: int,
+        owner_id: str,
+        settings: PowerSettings,
+    ) -> None:
+        """Apply a complete owner-supplied state and renew only after success."""
+        async with self.lock:
+            self._require_owner(device_id, owner_id)
+            await self._apply_locked(device_id, settings, "remote", apply=True)
+            self._renew(device_id, owner_id)
+
+    async def async_release_remote_control(self, device_id: int, owner_id: str) -> None:
+        """Release to verified automatic, also allowing recovery of an expired lease."""
+        async with self.lock:
+            self._require_owner(device_id, owner_id, live=False)
+            await self._release_locked(device_id)
+
+    async def _release_locked(self, device_id):
+        await self._apply_locked(
+            device_id, self.values(device_id), "automatic", apply=True, validate=False
+        )
+        self._leases.pop(device_id, None)
+        self._cancel_watchdog(device_id)
+
+    async def _expire_locked(self, device_id):
+        owner_id = self._leases[device_id].owner_id
+        await self._release_locked(device_id)
+        _LOGGER.warning(
+            "Remote storage lease expired for device %s (owner %s); "
+            "automatic mode restored",
+            device_id,
+            owner_id,
+        )
+
+    def _cancel_watchdog(self, device_id):
+        if cancel := self._watchdogs.pop(device_id, None):
+            cancel()
+
+    def _renew(self, device_id, owner_id):
+        self._leases[device_id] = RemoteLease(
+            owner_id, self._now() + REMOTE_LEASE_SECONDS
+        )
+        self._schedule_watchdog(device_id, REMOTE_LEASE_SECONDS)
+
+    def _schedule_watchdog(self, device_id, delay):
+        self._cancel_watchdog(device_id)
+        if self._closed:
+            return
+
+        @callback
+        def expired(_now):
+            if self._closed:
+                return
+            task = self.coordinator.hass.async_create_task(
+                self._async_watchdog(device_id)
+            )
+            self._watchdog_tasks.add(task)
+            task.add_done_callback(self._watchdog_tasks.discard)
+
+        self._watchdogs[device_id] = async_call_later(
+            self.coordinator.hass, delay, expired
+        )
+
+    async def _async_watchdog(self, device_id):
+        async with self.lock:
+            if self._closed or device_id not in self._leases:
+                return
+            remaining = self._leases[device_id].expires_at - self._now()
+            if remaining > 0:
+                self._schedule_watchdog(device_id, remaining)
+                return
+            self._cancel_watchdog(device_id)
+            try:
+                await self._expire_locked(device_id)
+            except Exception:
+                # Keep the expired reservation, mode and last successful target.
+                # A later explicit release/acquisition/manual action can retry
+                # the neutral fail-safe; never claim successful release or loop writes.
+                _LOGGER.exception(
+                    "Remote lease expired for device %s; automatic fallback failed; "
+                    "ownership remains expired pending verified release",
+                    device_id,
+                )
+
+    async def async_shutdown(self) -> None:
+        """Cancel timers and drain pending HLC I/O before the transport is closed."""
+        self._closed = True
+        for device_id in tuple(self._watchdogs):
+            self._cancel_watchdog(device_id)
+        async with self.lock:
+            self._leases.clear()
+        if self._watchdog_tasks:
+            await asyncio.gather(*self._watchdog_tasks, return_exceptions=True)

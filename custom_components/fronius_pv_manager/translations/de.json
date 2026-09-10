@@ -683,7 +683,7 @@
       "model_124_inoutwrte_rvrttms": {"name": "Register Rückfallzeit für Laden und Entladen"}
     },
     "select": {
-      "operating_mode": {"name": "Betriebsmodus", "state": {"automatic": "Automatisch", "manual": "Manuell"}},
+      "operating_mode": {"name": "Betriebsmodus", "state": {"automatic": "Automatisch", "manual": "Manuell", "remote": "Ferngesteuert"}},
       "model_123_conn": {
         "name": "Register Verbindungssteuerung",
         "state": {"0": "Getrennt", "1": "Verbunden"}

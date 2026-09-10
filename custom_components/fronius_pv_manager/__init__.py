@@ -69,6 +69,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_refresh()
     except Exception:
+        await coordinator.storage_control.async_shutdown()
         await coordinator.async_shutdown()
         try:
             await coordinator.async_close()
@@ -88,6 +89,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -
         return False
 
     coordinator = entry.runtime_data
+    await coordinator.storage_control.async_shutdown()
     await coordinator.async_shutdown()
     try:
         await coordinator.async_close()

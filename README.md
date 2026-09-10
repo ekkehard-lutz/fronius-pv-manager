@@ -247,6 +247,8 @@ or Energy Manager strategy are introduced here.
 | `async_remote_heartbeat(device_id, owner_id)` | Renew the current live owner's lease without Modbus I/O. |
 | `async_set_remote_power_window(device_id, owner_id, settings)` | Apply a complete profile for the live owner; renew only after success. |
 | `async_release_remote_control(device_id, owner_id)` | Apply the complete neutral automatic target, then release ownership. The owner can also retry a failed release after expiry. |
+| `async_set_remote_minimum_reserve(device_id, owner_id, value)` | Set requested reserve (5–100%) through Write Policy; renew the live owner lease only on success. |
+| `async_set_remote_grid_charging_allowed(device_id, owner_id, enabled)` | Set grid permission (boolean) through Write Policy; renew only on success. |
 | `remote_owner(device_id)` | Return the live owner ID, or `None`. |
 
 `settings` is a `PowerSettings` object containing all four whole-watt values.
@@ -274,8 +276,9 @@ Remote mode applies the same Model 124 semantics as manual (`StorCtl_Mod = 3`).
 Only acquisition can enter remote. The HA select displays remote but rejects
 normal selection of it; while owned, selection of automatic/manual and writes
 to the four HLC power numbers also fail with validation errors. Values remain
-visible. Minimum reserve and grid-charging permission remain independently
-writable, as do enabled LLC entities within Write Policy.
+visible. Minimum reserve and grid-charging permission are also exclusively
+managed by the live remote owner: normal HLC entity/service writes fail explicitly.
+Enabled LLC entities retain their existing Write Policy behavior.
 
 Remote updates share the same complete validation, exact quantization, locked,
 ordered and read-back-verified sequence as manual updates. Atomicity here means
@@ -485,3 +488,37 @@ git diff --check
 ## License
 
 Fronius PV Manager is licensed under the [MIT License](LICENSE).
+
+
+### Temporary remote hardware-test actions (development only)
+
+These actions are a **temporary test harness**, to be removed before stable
+v0.3.0. They call the same storage-control APIs intended for the future Energy
+Manager, using the fixed owner ID `fronius_pv_manager.debug_test`. They do not
+accept an owner ID from service input.
+
+All actions require integer `device_id` (the Modbus unit ID, 1–247).
+Optionally supply `config_entry_id` to select an endpoint; it is required when
+the unit ID is shared by multiple loaded entries. Unknown or ambiguous routing
+fails before a write. Actions exist only while at least one entry is loaded.
+
+| Action (domain `fronius_pv_manager`) | Additional inputs |
+| --- | --- |
+| `debug_remote_acquire` | Optionally all four power fields; omit all to use saved settings. |
+| `debug_remote_set_window` | All four power fields, required. |
+| `debug_remote_heartbeat` | None; renews without Modbus writes. |
+| `debug_remote_release` | None; returns to verified automatic operation. |
+| `debug_remote_set_minimum_reserve` | `value`: 5–100 percent, subject to Write Policy. |
+| `debug_remote_set_grid_charging_allowed` | `enabled`: boolean. |
+
+The four fields are `minimum_charge_power`, `maximum_charge_power`,
+`minimum_discharge_power`, and `maximum_discharge_power`, in whole watts.
+A complete profile must be coherent; both minima cannot be positive.
+
+For example, call acquire, change the window/reserve/grid permission as needed,
+send heartbeat at intervals shorter than 90 seconds (for example 30 seconds),
+then release. Stopping heartbeats exercises the existing automatic watchdog
+fallback. Failed reserve/grid writes do not renew the lease. Release or expiry
+releases the power window; it does not revert reserve or grid permission.
+Fronius may maintain an effective reserve above the requested minimum, and its
+internal safety/service charging can occur independently of grid permission.

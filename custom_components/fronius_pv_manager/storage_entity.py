@@ -47,8 +47,8 @@ class StorageEntity(CoordinatorEntity):
 
     async def write_register(self, name, value):
         try:
-            await self.coordinator.write_runtime.async_write(
-                self._source.device_id, 124, name, value
+            await self.control.async_write_policy_setting(
+                self._source.device_id, name, value
             )
         except WriteInvalidValueError as err:
             raise ServiceValidationError(str(err)) from err

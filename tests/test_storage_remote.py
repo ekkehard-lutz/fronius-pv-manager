@@ -204,7 +204,7 @@ async def test_remote_cannot_be_selected_without_an_owner(remote):
 
 
 @pytest.mark.asyncio
-async def test_power_controls_locked_but_reserve_grid_and_llc_independent(remote):
+async def test_all_hlc_controls_locked_while_remote(remote):
     coordinator, control, _ = remote
     entities = await entities_for(coordinator)
     await control.async_acquire_remote_control(1, OWNER, PROFILE)
@@ -218,10 +218,11 @@ async def test_power_controls_locked_but_reserve_grid_and_llc_independent(remote
     with pytest.raises(ServiceValidationError):
         await control.async_set_power_window(1, NEXT)
     assert coordinator.control_transport.write_calls == writes
-    await hlc(entities, "minimum_reserve").async_set_native_value(25)
-    await hlc(entities, "grid_charging_allowed").async_turn_on()
-    assert hlc(entities, "minimum_reserve").native_value == 25
-    assert hlc(entities, "grid_charging_allowed").is_on
+    with pytest.raises(ServiceValidationError, match="Remote storage control"):
+        await hlc(entities, "minimum_reserve").async_set_native_value(25)
+    with pytest.raises(ServiceValidationError, match="Remote storage control"):
+        await hlc(entities, "grid_charging_allowed").async_turn_on()
+    assert coordinator.control_transport.write_calls == writes
 
 
 @pytest.mark.asyncio
@@ -520,3 +521,78 @@ async def test_expired_failed_release_must_complete_before_new_control(
         address - MODEL_BASE
         for address, _ in coordinator.control_transport.write_calls[start:]
     ] == [3, 11, 10, 3, 11, 10, 11, 10, 3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,value,register",
+    [
+        ("async_set_remote_minimum_reserve", 25, "MinRsvPct"),
+        ("async_set_remote_grid_charging_allowed", True, "ChaGriSet"),
+    ],
+)
+async def test_remote_policy_settings_owner_validation_renewal_and_failure(
+    remote, method, value, register
+):
+    coordinator, control, clock = remote
+    command = getattr(control, method)
+    with pytest.raises(ServiceValidationError):
+        await command(1, OWNER, value)
+    assert not coordinator.control_transport.write_calls
+    await control.async_acquire_remote_control(1, OWNER)
+    before = list(coordinator.control_transport.write_calls)
+    lease = control._leases[1]
+    clock.now += 10
+    with pytest.raises(ServiceValidationError):
+        await command(1, "wrong", value)
+    assert coordinator.control_transport.write_calls == before
+    assert control._leases[1] == lease
+    await command(1, OWNER, value)
+    assert control._leases[1].expires_at == clock.now + 90
+    observed = control.snapshot(1)[register]
+    assert (observed.raw if register == "ChaGriSet" else observed.value) == value
+    lease = control._leases[1]
+    clock.now += 10
+    coordinator.write_runtime.async_write = AsyncMock(
+        side_effect=ModbusTransportError("failed")
+    )
+    with pytest.raises(ModbusTransportError):
+        await command(1, OWNER, value)
+    assert control._leases[1] == lease
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [4, 101, True, float("nan"), "25"])
+async def test_invalid_remote_reserve_before_write(remote, value):
+    coordinator, control, clock = remote
+    await control.async_acquire_remote_control(1, OWNER)
+    before = list(coordinator.control_transport.write_calls)
+    lease = control._leases[1]
+    clock.now += 10
+    with pytest.raises(ServiceValidationError):
+        await control.async_set_remote_minimum_reserve(1, OWNER, value)
+    assert coordinator.control_transport.write_calls == before
+    assert control._leases[1] == lease
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,value",
+    [
+        ("async_set_remote_minimum_reserve", 25),
+        ("async_set_remote_grid_charging_allowed", False),
+    ],
+)
+async def test_remote_policy_settings_obey_write_policy(remote, method, value):
+    from custom_components.fronius_pv_manager.write_runtime import WriteNotApprovedError
+
+    coordinator, control, clock = remote
+    await control.async_acquire_remote_control(1, OWNER)
+    before = list(coordinator.control_transport.write_calls)
+    lease = control._leases[1]
+    coordinator.write_policies = {}
+    clock.now += 10
+    with pytest.raises(WriteNotApprovedError):
+        await getattr(control, method)(1, OWNER, value)
+    assert coordinator.control_transport.write_calls == before
+    assert control._leases[1] == lease

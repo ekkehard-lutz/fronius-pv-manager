@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 
 from .codec import encode_register_value
 from .register_maps import MODEL_124
+from .write_runtime import WriteInvalidValueError
 
 _LOGGER = logging.getLogger(__name__)
 REMOTE_LEASE_SECONDS = 90
@@ -455,6 +456,54 @@ class StorageControl:
         async with self.lock:
             self._require_owner(device_id, owner_id)
             await self._apply_locked(device_id, settings, "remote", apply=True)
+            self._renew(device_id, owner_id)
+
+    async def async_write_policy_setting(self, device_id, name, value):
+        """Write a manual reserve/grid HLC setting under the ownership lock."""
+        async with self.lock:
+            await self._manual_access(device_id)
+            await self._write_policy_setting(device_id, name, value)
+
+    async def _write_policy_setting(self, device_id, name, value):
+        if name == "MinRsvPct":
+            if (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not 5 <= value <= 100
+            ):
+                raise ServiceValidationError(
+                    "minimum reserve must be between 5 and 100"
+                )
+        elif name == "ChaGriSet":
+            if type(value) is not int or value not in (0, 1):
+                raise ServiceValidationError("grid charging permission must be 0 or 1")
+        else:
+            raise ServiceValidationError("unknown storage policy setting")
+        try:
+            await self.coordinator.write_runtime.async_write(
+                device_id, 124, name, value
+            )
+        except WriteInvalidValueError as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def async_set_remote_minimum_reserve(
+        self, device_id: int, owner_id: str, value: float
+    ) -> None:
+        """Write reserve through policy and renew only after verified success."""
+        async with self.lock:
+            self._require_owner(device_id, owner_id)
+            await self._write_policy_setting(device_id, "MinRsvPct", value)
+            self._renew(device_id, owner_id)
+
+    async def async_set_remote_grid_charging_allowed(
+        self, device_id: int, owner_id: str, enabled: bool
+    ) -> None:
+        """Write grid permission through policy and renew only after success."""
+        async with self.lock:
+            self._require_owner(device_id, owner_id)
+            if type(enabled) is not bool:
+                raise ServiceValidationError("enabled must be a boolean")
+            await self._write_policy_setting(device_id, "ChaGriSet", int(enabled))
             self._renew(device_id, owner_id)
 
     async def async_release_remote_control(self, device_id: int, owner_id: str) -> None:

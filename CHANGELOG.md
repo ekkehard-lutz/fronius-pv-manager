@@ -21,6 +21,11 @@ releases will use semantic versioning.
 
 ### Added
 
+- Extend live remote ownership to minimum reserve and grid-charging HLC writes;
+  owner-checked APIs use Write Policy and renew the lease only after success.
+- Temporary development-only remote hardware-test actions with validated inputs,
+  safe multi-entry routing, and lifecycle cleanup; remove before stable v0.3.0.
+
 - Complete semantic PowerSettings update API sharing the validated, quantized,
   locked and read-back-verified HLC write path.
 - Programmatic remote mode with per-device ownership, a 90-second heartbeat

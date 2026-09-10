@@ -84,12 +84,26 @@ storage discharging data.
 
 ### Availability
 
-The integration polls every 30 seconds. A discovered device is unavailable when
-its current model payload cannot be read or decoded. Optional or repeated
-instances that are not physically present do not create permanently unavailable
-entities. With multiple device IDs, healthy devices continue updating when one
-device fails; the config entry becomes unavailable only when no configured
-device can be refreshed.
+Initial configuration validates every explicitly configured unit's SunSpec
+endpoint. The entry stores model addresses, Common Model identity, and Model
+160 module identities so its entities can be constructed without live devices.
+No measurements are persisted in this topology cache. Serial-based unique IDs
+and existing entity/device identifiers remain unchanged.
+
+An existing entry loads its runtime and platforms even when every unit is
+offline. The initial refresh and subsequent 30-second polls handle failures per
+unit and per model. Only entities whose current model cannot be read or decoded
+become unavailable; stale measurements are discarded. Failed discovery and
+reads are attempted again on normal updates, and recovery needs no reload.
+Storage and battery availability follows the inverter's storage/module models,
+without introducing a separate battery connection.
+
+Entries created before the topology cache was introduced also load offline.
+Their registry entries are retained, but missing model addresses and module
+identities cannot be reconstructed until the corresponding unit first responds.
+Polling discovers and persists that structure and adds its entities automatically.
+Subsequent offline starts can construct those entities directly from the cache.
+Optional or repeated instances that are not physically present are not invented.
 
 ### Troubleshooting
 

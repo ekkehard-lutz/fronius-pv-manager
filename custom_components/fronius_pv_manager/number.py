@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -29,23 +29,34 @@ async def async_setup_entry(
 ) -> None:
     """Create safely representable catalog number entities."""
     coordinator = entry.runtime_data
-    sources = [
-        source
-        for source in control_entity_sources(coordinator, EntityPlatform.NUMBER)
-        if _has_finite_hard_range(source)
-    ]
-    devices_by_role = {}
-    for source in sources:
-        devices_by_role.setdefault(source.role, set()).add(source.device_id)
-    async_add_entities(
-        FroniusPVNumber(
-            coordinator,
-            entry.entry_id,
-            source,
-            distinguish_device_name=len(devices_by_role[source.role]) > 1,
+    known: set[str] = set()
+
+    @callback
+    def add_new_entities():
+        sources = [
+            source
+            for source in control_entity_sources(coordinator, EntityPlatform.NUMBER)
+            if _has_finite_hard_range(source)
+        ]
+        devices_by_role = {}
+        for source in sources:
+            devices_by_role.setdefault(source.role, set()).add(source.device_id)
+        entities = list(
+            FroniusPVNumber(
+                coordinator,
+                entry.entry_id,
+                source,
+                distinguish_device_name=len(devices_by_role[source.role]) > 1,
+            )
+            for source in sources
         )
-        for source in sources
-    )
+        fresh = [entity for entity in entities if entity.unique_id not in known]
+        known.update(entity.unique_id for entity in fresh)
+        if fresh:
+            async_add_entities(fresh)
+
+    add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
 class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
@@ -86,9 +97,7 @@ class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
                 source.entity.key,
             )
         )
-        self._attr_device_info = _device_info(
-            entry_id, source, distinguish_device_name
-        )
+        self._attr_device_info = _device_info(entry_id, source, distinguish_device_name)
 
     @property
     def available(self) -> bool:
@@ -101,7 +110,22 @@ class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
             ),
             None,
         )
-        return super().available and device is not None and device.available
+        matching = (
+            []
+            if device is None
+            else [
+                model
+                for model in device.decoded_models
+                if model.discovered.model_id == self._source.model_id
+            ]
+        )
+        return (
+            super().available
+            and device is not None
+            and device.available
+            and self._source.model_occurrence < len(matching)
+            and matching[self._source.model_occurrence].available
+        )
 
     @property
     def native_value(self) -> float | None:

@@ -1,5 +1,6 @@
 """Shared lightweight Home Assistant runtime test doubles."""
 
+import asyncio
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -38,6 +39,10 @@ class FakeConfigEntries:
             if entry_domain == domain
         ]
 
+    def async_update_entry(self, entry, *, data):
+        """Persist updated config-entry data."""
+        entry.data = data
+
     async def async_forward_entry_setups(self, entry, platforms) -> None:
         """Record platform forwarding or raise a configured failure."""
         self.forwarded.append((entry, tuple(platforms)))
@@ -70,6 +75,11 @@ class FakeHass:
         self.config_entries = FakeConfigEntries()
         self.config = FakeConfig(config_dir or Path(tempfile.mkdtemp()))
 
+    @property
+    def loop(self):
+        """Return the active test event loop."""
+        return asyncio.get_running_loop()
+
     async def async_add_executor_job(self, target, *args):
         """Record and execute one submitted synchronous callable."""
         self.executor_jobs.append(target)
@@ -95,6 +105,7 @@ class FakeEntry:
     ) -> None:
         self.data = data
         self.entry_id = entry_id
+        self.pref_disable_polling = False
         self.state = ConfigEntryState.SETUP_IN_PROGRESS
         self.unload_callbacks: list[Callable] = []
 
@@ -210,9 +221,7 @@ def model_chain(*models: tuple[int, int]) -> tuple[dict[int, int], dict[int, int
         registers[header + 1] = length
         payload_base = header + 2
         payload_bases[model_id] = payload_base
-        registers.update(
-            {payload_base + offset: 0 for offset in range(length)}
-        )
+        registers.update({payload_base + offset: 0 for offset in range(length)})
         header = payload_base + length
     registers[header] = 0xFFFF
     registers[header + 1] = 0

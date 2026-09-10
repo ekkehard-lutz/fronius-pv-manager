@@ -7,6 +7,9 @@ releases will use semantic versioning.
 
 ### Fixed
 
+- Positive HLC minimum charge/discharge commands clear the opposite minimum
+  in one semantic transition, allowing forced-direction changes with one action.
+
 - v0.3.0-beta.2: quantize HLC watt constraints at the Model 124 rate resolution,
   rounding maxima down and minima up while retaining semantic watt settings.
 - Keep HLC power UI steps fixed at 1 W, independent of hardware resolution;

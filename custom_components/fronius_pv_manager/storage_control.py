@@ -265,7 +265,15 @@ class StorageControl:
                 ):
                     raise ServiceValidationError("power settings require whole watts")
                 value = int(value)
-                settings = replace(settings, **{field: value})
+                changes = {field: value}
+                opposite_minimum = {
+                    "minimum_charge_power": "minimum_discharge_power",
+                    "minimum_discharge_power": "minimum_charge_power",
+                }.get(field)
+                if value > 0 and opposite_minimum is not None:
+                    changes[opposite_minimum] = 0
+                # Normalize one complete semantic transition before validation or I/O.
+                settings = replace(settings, **changes)
             selected_mode = mode if mode is not None else self.mode(device_id)
             # Automatic release is independent of saved power constraints.
             if field is not None or selected_mode != "automatic":

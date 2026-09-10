@@ -143,8 +143,15 @@ mode applies both boundaries (`StorCtl_Mod = 3`) to the signed power interval:
 | Positive minimum discharge | −minimum discharge / WChaMax × 100 | maximum discharge / WChaMax × 100 |
 
 A positive minimum forces its direction, excluding the opposite direction;
-the opposite maximum remains saved. Both positive minima, minima greater than
-maxima, and values outside the reference range are rejected. Whole-watt settings
+the opposite maximum remains saved. The two minimum commands are mutually
+exclusive: setting a positive minimum charge power clears minimum discharge to
+0 W, and setting a positive minimum discharge power clears minimum charge to
+0 W. Setting either minimum to zero changes only that field. This lets manual
+users and future Energy Manager logic switch forced direction with one HLC
+action. The complete normalized settings are validated together and, in manual
+mode, applied with one controlled write sequence; in automatic mode they are
+only saved. Minima greater than their corresponding maxima and values outside
+the reference range are still rejected. Whole-watt settings
 are preserved exactly as entered. When applying a manual target, the integration
 uses the decoded `WChaMax` and `InOutWRte_SF` to quantize register magnitudes:
 maximum constraints round down, minimum constraints round up. The forced-power

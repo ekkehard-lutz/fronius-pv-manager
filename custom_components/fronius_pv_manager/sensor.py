@@ -39,6 +39,7 @@ from .models import (
     RegisterDefinition,
 )
 from .semantics import Model160ModuleKind, classify_model_160_module
+from .solar_entity import SolarEntity, setup_solar_entities
 
 _UNIT_METADATA = {
     "W": (UnitOfPower.WATT, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
@@ -114,6 +115,7 @@ async def async_setup_entry(
     from .storage_status import setup_storage_status
 
     setup_storage_status(entry, async_add_entities)
+    setup_solar_entities(entry, async_add_entities, _solar_sensors)
     coordinator = entry.runtime_data
     known: set[str] = set()
 
@@ -481,3 +483,19 @@ def _enum_option(label: str) -> str:
     """Normalize one decoded enum label to a stable HA option identifier."""
     label = label.replace("%", " percent ")
     return re.sub(r"[^a-z0-9]+", "_", label.casefold()).strip("_")
+
+
+class BatteryOperationMode(SolarEntity, SensorEntity):
+    """Unrestricted raw strings allow future firmware states without enum rejection."""
+
+    @property
+    def native_value(self):
+        return self.value
+
+
+def _solar_sensors(coordinator, entry_id, device_id):
+    return [
+        BatteryOperationMode(
+            coordinator, entry_id, device_id, "battery_operation_mode", "storage"
+        )
+    ]

@@ -15,6 +15,7 @@ from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .model_decoder import DecodedModel, decode_model
 from .models import DiscoveredModel, SunSpecModelDefinition
 from .register_maps import get_model_definition
+from .solar_api import SolarAPI, SolarState
 from .storage_control import StorageControl
 from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
 from .topology import CONF_TOPOLOGY, model_topology, restore_model
@@ -92,6 +93,8 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         self.transports = MappingProxyType(dict(transports))
         self.discovered_models_by_device: dict[int, tuple[DiscoveredModel, ...]] = {}
         self.entry = entry
+        self.solar_api = SolarAPI(hass, entry.data.get("host", "localhost"))
+        self.solar_state = SolarState()
         self.topology = dict(entry.data.get(CONF_TOPOLOGY, {}))
         for device_id in transports:
             records = self.topology.get(str(device_id), ())
@@ -154,6 +157,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         """Poll and decode all supported models without blocking the event loop."""
         async with self._io_lock:
             data = await self.hass.async_add_executor_job(self._poll_devices)
+        self.solar_state = await self.solar_api.async_poll()
         if self.entry.data.get(CONF_TOPOLOGY) != self.topology:
             self.hass.config_entries.async_update_entry(
                 self.entry, data={**self.entry.data, CONF_TOPOLOGY: self.topology}

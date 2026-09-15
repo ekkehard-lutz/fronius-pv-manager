@@ -226,7 +226,11 @@ async def test_writable_number_has_no_duplicate_sensor() -> None:
     )
 
     assert by_register(numbers, "OutWRte")
-    assert all(sensor._source.register_name != "OutWRte" for sensor in sensors)
+    assert all(
+        sensor._source.register_name != "OutWRte"
+        for sensor in sensors
+        if hasattr(sensor, "_source")
+    )
 
 
 def test_control_translation_keys_cover_catalog_platforms() -> None:

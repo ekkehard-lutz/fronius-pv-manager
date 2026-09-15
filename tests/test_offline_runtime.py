@@ -14,6 +14,7 @@ from custom_components.fronius_pv_manager import (
 )
 from custom_components.fronius_pv_manager.config_flow import _validate_endpoint
 from custom_components.fronius_pv_manager.const import CONF_DEVICE_IDS, CONF_HOST
+from custom_components.fronius_pv_manager.solar_entity import SolarEntity
 from custom_components.fronius_pv_manager.storage_status import StorageControlStatus
 from custom_components.fronius_pv_manager.topology import CONF_TOPOLOGY
 from custom_components.fronius_pv_manager.transport import ModbusTransportError
@@ -39,7 +40,11 @@ async def load_platforms(hass, entry):
     """Create real entity classes and retain automatic additions."""
     entities = []
     for platform in (sensor, number, select, switch):
-        await platform.async_setup_entry(hass, entry, entities.extend)
+        await platform.async_setup_entry(
+            hass, entry, lambda items: entities.extend(
+                e for e in items if not isinstance(e, SolarEntity)
+            )
+        )
     return entities
 
 

@@ -67,7 +67,16 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     ]
     assert endpoint.connect_calls == 1
     assert hass.config_entries.forwarded == [
-        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.SWITCH))
+        (
+            entry,
+            (
+                Platform.SENSOR,
+                Platform.BINARY_SENSOR,
+                Platform.NUMBER,
+                Platform.SELECT,
+                Platform.SWITCH,
+            ),
+        )
     ]
     assert len(entry.runtime_data.write_policies) == 25
     assert {
@@ -166,7 +175,16 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
     assert hass.config_entries.unloaded == [
-        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.SWITCH))
+        (
+            entry,
+            (
+                Platform.SENSOR,
+                Platform.BINARY_SENSOR,
+                Platform.NUMBER,
+                Platform.SELECT,
+                Platform.SWITCH,
+            ),
+        )
     ]
 
 

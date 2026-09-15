@@ -48,7 +48,33 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "backup_mode": {
+        "name": "Backup mode"
+      },
+      "battery_standby": {
+        "name": "Battery standby"
+      }
+    },
     "sensor": {
+      "battery_operation_mode": {
+        "name": "Battery operation mode",
+        "state": {
+          "disabled": "Disabled",
+          "normal": "Normal",
+          "service": "Service",
+          "charge boost": "Charge boost",
+          "nearly depleted": "Nearly depleted",
+          "suspended": "Suspended",
+          "calibrate": "Calibrate",
+          "grid support": "Grid support",
+          "deplete recovery": "Deplete recovery",
+          "non operable (voltage)": "Non operable (voltage)",
+          "non operable (temperature)": "Non operable (temperature)",
+          "preheating": "Preheating",
+          "startup": "Startup"
+        }
+      },
       "control_status": {"name": "Storage control status", "state": {"automatic": "Automatic", "manual_hlc": "Manual (HLC)", "low_level_override": "Override of HLC target", "unknown": "Unknown"}},
       "model_103_a": {
         "name": "AC current"

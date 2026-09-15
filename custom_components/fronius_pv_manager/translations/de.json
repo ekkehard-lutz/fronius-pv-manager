@@ -48,7 +48,33 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "backup_mode": {
+        "name": "Backup Modus"
+      },
+      "battery_standby": {
+        "name": "Batterie Standby"
+      }
+    },
     "sensor": {
+      "battery_operation_mode": {
+        "name": "Batterie Betriebszustand",
+        "state": {
+          "disabled": "Deaktiviert",
+          "normal": "Normalbetrieb",
+          "service": "Service",
+          "charge boost": "Schnellladung",
+          "nearly depleted": "Nahezu entladen",
+          "suspended": "Ausgesetzt",
+          "calibrate": "Kalibrierung",
+          "grid support": "Netzunterstützung",
+          "deplete recovery": "Erholung nach Tiefentladung",
+          "non operable (voltage)": "Nicht betriebsbereit (Spannung)",
+          "non operable (temperature)": "Nicht betriebsbereit (Temperatur)",
+          "preheating": "Vorheizen",
+          "startup": "Startvorgang"
+        }
+      },
       "control_status": {"name": "Speichersteuerungsstatus", "state": {"automatic": "Automatisch", "manual_hlc": "Manuell (HLC)", "low_level_override": "Abweichung vom HLC-Ziel", "unknown": "Unbekannt"}},
       "model_103_a": {
         "name": "AC-Strom"

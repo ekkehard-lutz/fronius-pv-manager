@@ -34,6 +34,11 @@ releases will use semantic versioning.
 
 ### Added
 
+- Optional local Solar API V1 supplemental runtime and three High-Level state
+  entities: Battery operation mode, Backup mode, and Battery standby.
+- Independent field availability and automatic recovery without entry reload;
+  forward-compatible raw Battery_Mode strings with English/German translations.
+
 - Runtime-only pre-remote reserve/grid/profile snapshot for temporary takeover.
   Orderly release and watchdog expiry restore policy and the saved user profile
   while always returning power control to Automatic, never previous manual mode.

@@ -722,3 +722,27 @@ Both explicit release and watchdog timeout ended in Automatic and restored the
 pre-remote reserve, grid permission, and saved user power profile. These results
 apply to the tested GEN24 setup; they do not guarantee identical behavior across
 all firmware, batteries, devices, or operating conditions.
+
+## Optional local Fronius Solar API
+
+SunSpec/Modbus TCP remains the primary interface. The optional local Solar API V1
+supplements only semantic states absent from the supported Modbus models:
+
+- **Battery operation mode** (storage device)
+- **Backup mode** (inverter device)
+- **Battery standby** (storage device)
+
+Enable the local Solar API in the inverter web interface to use these entities.
+The integration reads `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` on the
+configured inverter host; no cloud connection or Solar API writes are used.
+No Modbus power, energy or SOC measurements are replaced.
+
+If the API is disabled or unreachable, only these three entities are unavailable;
+Modbus measurements and storage controls continue normally. Requests use the
+existing polling cadence with a three-second timeout and automatic recovery,
+without a reload. Missing or invalid fields affect only their own entities.
+Entities follow cached/discovered inverter topology, including later discovery.
+Battery modes use the configured SunSpec device ID to select the inverter entry.
+Known mode values have English/German display translations. Unknown future
+`Battery_Mode` strings are intentionally shown unchanged until explicit
+translations are added. Empty or whitespace-only mode strings are unavailable.

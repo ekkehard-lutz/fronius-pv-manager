@@ -21,7 +21,13 @@ from .transport import ModbusTcpEndpointTransport, ModbusTransportError
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = (Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.SWITCH)
+PLATFORMS = (
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SWITCH,
+)
 
 type FroniusPVConfigEntry = ConfigEntry[FroniusPVCoordinator]
 

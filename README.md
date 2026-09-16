@@ -5,10 +5,12 @@ Fronius systems that expose SunSpec over Modbus TCP. It discovers supported
 inverter, storage, and Smart Meter capabilities and organizes their entities as
 separate Home Assistant devices.
 
-The current stable release is v0.3.0, including high-level storage controls
-and the programmatic remote-control interface. PV Manager supplies device-near
-validation and control; tariff optimization, scheduling, and continuous strategy
-belong to a future Energy Manager. It does not continuously reassert targets.
+Fronius PV Manager v1.0.1 is a documentation and release-history cleanup of
+v1.0.0, the first official stable release. Functionality includes high-level
+storage controls and the programmatic remote-control interface. PV Manager
+supplies device-near validation and control; tariff optimization, scheduling,
+and continuous strategy belong to a future Energy Manager. It does not
+continuously reassert targets.
 
 ## For Home Assistant users
 
@@ -39,7 +41,7 @@ not claimed.
 
 ### Tested hardware and compatibility
 
-Fronius PV Manager v0.2.0 was developed and hardware-tested with:
+The hardware-validation reference setup is:
 
 - Fronius Symo GEN24 10.0
 - BYD Battery-Box Premium HVM 11.0
@@ -280,8 +282,8 @@ are needed because changed `WChaMax` or automatic-mode watt edits prevent safely
 reconstructing the historical target from settings alone. A partial failure
 preserves the previous target and its error details; the next poll classifies
 actual state. Startup loads configuration without writing, then classifies the
-inverter after reading it. Initial watt-only development storage is retained,
-without inventing an applied target. Continuous enforcement belongs to the
+inverter after reading it. Legacy watt-only storage is retained without
+inventing an applied target. Continuous enforcement belongs to the
 future Energy Manager, not these controls.
 
 For programmatic ownership and complete power windows, see the

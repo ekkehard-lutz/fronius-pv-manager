@@ -57,6 +57,9 @@
       }
     },
     "sensor": {
+      "pv_power": {"name": "PV-Leistung"},
+      "grid_import_power": {"name": "Netzbezugsleistung"},
+      "grid_export_power": {"name": "Netzeinspeiseleistung"},
       "battery_operation_mode": {
         "name": "Batterie Betriebszustand",
         "state": {

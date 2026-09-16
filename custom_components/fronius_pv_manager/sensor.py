@@ -493,9 +493,65 @@ class BatteryOperationMode(SolarEntity, SensorEntity):
         return self.value
 
 
+class SolarPowerSensor(SolarEntity, SensorEntity):
+    """Read semantic power from current Modbus data, independent of Solar API."""
+
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def value(self):
+        if not self.coordinator.last_update_success:
+            return None
+        device = next(
+            (d for d in self.coordinator.data.devices if d.device_id == self.device_id),
+            None,
+        )
+        if device is None or not device.available:
+            return None
+        if self.key == "pv_power":
+            powers = []
+            for snapshot in device.decoded_models:
+                if snapshot.discovered.model_id != 160 or not snapshot.available:
+                    continue
+                for module in snapshot.decoded.repeating.get("module", ()):
+                    if (
+                        classify_model_160_module(module).semantic_kind
+                        is Model160ModuleKind.MPPT
+                    ):
+                        power = module.values.get("DCW")
+                        if power is not None and power.value is not None:
+                            powers.append(power.value)
+            return sum(powers) if powers else None
+        meter = next(
+            (s for s in device.decoded_models if s.discovered.model_id == 203),
+            None,
+        )
+        if meter is None or not meter.available:
+            return None
+        power = meter.decoded.fixed.get("W")
+        if power is None or power.value is None:
+            return None
+        # Fronius Model 203 at the grid connection: positive import, negative export.
+        # https://manuals.fronius.com/html/4204102649/en-US.html (Meter Model)
+        return max(power.value if self.key == "grid_import_power" else -power.value, 0)
+
+    @property
+    def native_value(self):
+        return self.value
+
+
 def _solar_sensors(coordinator, entry_id, device_id):
     return [
         BatteryOperationMode(
             coordinator, entry_id, device_id, "battery_operation_mode", "storage"
-        )
+        ),
+        SolarPowerSensor(coordinator, entry_id, device_id, "pv_power", "inverter"),
+        SolarPowerSensor(
+            coordinator, entry_id, device_id, "grid_import_power", "meter"
+        ),
+        SolarPowerSensor(
+            coordinator, entry_id, device_id, "grid_export_power", "meter"
+        ),
     ]

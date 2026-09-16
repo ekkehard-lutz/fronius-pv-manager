@@ -57,6 +57,9 @@
       }
     },
     "sensor": {
+      "pv_power": {"name": "PV Power"},
+      "grid_import_power": {"name": "Grid Import Power"},
+      "grid_export_power": {"name": "Grid Export Power"},
       "battery_operation_mode": {
         "name": "Battery operation mode",
         "state": {

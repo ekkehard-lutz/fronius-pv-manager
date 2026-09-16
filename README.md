@@ -814,6 +814,36 @@ pre-remote reserve, grid permission, and saved user power profile. These results
 apply to the tested GEN24 setup; they do not guarantee identical behavior across
 all firmware, batteries, devices, or operating conditions.
 
+## Energy Dashboard power sensors
+
+Three enabled, read-only high-level sensors use existing decoded Modbus data:
+
+| Sensor | Physical device | Source |
+| --- | --- | --- |
+| PV Power | Inverter | Sum of all currently available Model 160 MPPT `DCW` values. |
+| Grid Import Power | Meter | `max(W, 0)` from Model 203 signed AC active power. |
+| Grid Export Power | Meter | `max(-W, 0)` from Model 203 signed AC active power. |
+
+PV Power excludes storage charge/discharge and unknown modules using the existing
+Model 160 classification. It never uses aggregate inverter DC power, which can
+include battery power on GEN24. Any number of discovered MPPTs is supported;
+missing MPPT values are omitted, and no available MPPT values means unavailable.
+A valid zero remains zero. Failed device/model polls do not supply stale values.
+
+Grid directions follow the [Fronius meter convention](https://manuals.fronius.com/html/4204102649/en-US.html)
+for a meter at the grid connection: positive means import, negative means export.
+Select the grid-connection meter for Energy Dashboard use; a load or generator
+meter measures a different flow. Missing meter power makes both sensors
+unavailable. Both directions are non-negative and cannot be positive together.
+
+PV Power plus Grid Import/Export Power are suitable for Home Assistant Energy
+Dashboard **power-flow configuration**. All use W, device class `power`, and
+state class `measurement`; energy totals remain separate sensors. Suggested
+object IDs are `inverter_pv_power`, `meter_grid_import_power`, and
+`meter_grid_export_power`, independent of UI language. English and German display
+names are provided. Entities also appear when topology is discovered after
+startup. These sensors need no Solar API access and leave raw sensors unchanged.
+
 ## Optional local Fronius Solar API
 
 SunSpec/Modbus TCP remains the primary interface. The optional local Solar API V1

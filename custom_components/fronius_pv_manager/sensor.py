@@ -619,8 +619,94 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
         return self.value
 
 
+def _efficiency_number(values, key):
+    """Read a finite, nonnegative decoded engineering value."""
+    register = values.get(key)
+    value = register.value if register is not None else None
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+        return None
+    return value
+
+
+class SolarEfficiencySensor(SolarEntity, SensorEntity):
+    """Efficiency from unambiguous models on one Modbus inverter/storage system."""
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def value(self):
+        if not self.coordinator.last_update_success:
+            return None
+        device = next(
+            (d for d in self.coordinator.data.devices if d.device_id == self.device_id),
+            None,
+        )
+        if device is None or not device.available:
+            return None
+        inverter = self.key == "inverter_efficiency"
+        required = (103, 160) if inverter else (120, 124, 160)
+        models = {}
+        for model_id in required:
+            matches = [
+                s for s in device.decoded_models if s.discovered.model_id == model_id
+            ]
+            discovered = [m for m in device.discovered_models if m.model_id == model_id]
+            if len(discovered) != 1 or len(matches) != 1 or not matches[0].available:
+                return None
+            models[model_id] = matches[0].decoded
+        modules = {kind: [] for kind in Model160ModuleKind}
+        for module in models[160].repeating.get("module", ()):
+            modules[classify_model_160_module(module).semantic_kind].append(module)
+        charge = modules[Model160ModuleKind.STORAGE_CHARGE]
+        discharge = modules[Model160ModuleKind.STORAGE_DISCHARGE]
+        if len(charge) != 1 or len(discharge) != 1:
+            return None
+        field = "DCW" if inverter else "DCWH"
+        charging = _efficiency_number(charge[0].values, field)
+        discharging = _efficiency_number(discharge[0].values, field)
+        if charging is None or discharging is None:
+            return None
+        if inverter:
+            # Decoder enum label from Model 103 St=4, never an HA translation.
+            state = models[103].fixed.get("St")
+            if state is None or state.value != "MPPT":
+                return None
+            ac = _efficiency_number(models[103].fixed, "W")
+            pv = [
+                _efficiency_number(m.values, "DCW")
+                for m in modules[Model160ModuleKind.MPPT]
+            ]
+            if ac is None or not pv or any(p is None for p in pv):
+                return None
+            denominator = sum(pv) + discharging - charging
+            numerator = ac
+        else:
+            soc = _efficiency_number(models[124].fixed, "ChaState")
+            capacity = _efficiency_number(models[120].fixed, "WHRtg")
+            if soc is None or soc > 100 or capacity is None or capacity <= 0:
+                return None
+            # DCWH and WHRtg are already scaled Wh; ChaState is percent.
+            numerator = discharging + capacity * (soc / 100)
+            denominator = charging
+        if denominator <= 0 or not math.isfinite(denominator):
+            return None
+        result = 100 * (numerator / denominator)
+        return result if math.isfinite(result) else None
+
+    @property
+    def native_value(self):
+        return self.value
+
+
 def _solar_sensors(coordinator, entry_id, device_id):
     return [
+        SolarEfficiencySensor(
+            coordinator, entry_id, device_id, "inverter_efficiency", "inverter"
+        ),
+        SolarEfficiencySensor(
+            coordinator, entry_id, device_id, "battery_lifetime_efficiency", "storage"
+        ),
         *(
             SolarConsumptionSensor(coordinator, entry_id, device_id, key)
             for key in ("consumption_power", "autarky", "self_consumption")

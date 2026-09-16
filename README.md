@@ -885,6 +885,94 @@ Entity and translation keys are `consumption_power`, `autarky`, and
 Unique IDs follow `{entry_id}_device{device_id}_inverter_hlc_{key}` using the
 inverter's Modbus device ID. Existing raw and semantic sensors are unchanged.
 
+### Inverter and battery efficiency
+
+Two read-only semantic sensors use decoded Modbus data, independently of whether
+source entities are enabled. Both use `%`, state class `measurement`, and no
+device class, following the existing percentage sensors. Neither clamps results
+to 100%; mathematically valid values above 100% remain visible.
+
+**Inverter Efficiency / Wechselrichter-Wirkungsgrad** belongs to the inverter:
+
+```text
+effective DC input = PV DC + battery discharge DC - battery charge DC
+inverter efficiency = 100 * inverter AC output / effective DC input
+```
+
+Battery discharge adds DC input. Battery charging is subtracted because that
+energy goes into storage instead of DC-to-AC conversion. Only classified Model
+160 MPPT modules contribute PV power; aggregate inverter DC power is not used.
+The sensor requires Operating State `MPPT` (Model 103 `St` enum 4). On the tested
+GEN24, MPPT also occurs during battery-to-AC operation with approximately zero
+PV production. This is an observation, not a universal firmware guarantee.
+Instantaneous source readings may not be synchronized, so a result over 100%
+can reveal timing, resolution, or power-balance discrepancies.
+
+**Battery Lifetime Efficiency / Speicher-Gesamtwirkungsgrad** belongs to storage:
+
+```text
+estimated stored energy = nominal capacity * SoC / 100
+lifetime efficiency = 100 * (discharged energy + stored energy) / charged energy
+```
+
+This is a cumulative lifetime round-trip estimate, **not instantaneous battery
+efficiency**. Charged energy that has not yet been discharged should not be counted
+as loss. Nominal capacity and SoC only estimate the remaining inventory; they do
+not measure actual usable stored energy directly. For 6453.44 kWh charged,
+6034.24 kWh discharged, 11 kWh nominal capacity and 68% SoC, the result is
+approximately 93.62015%.
+
+The calculation assumes that the Fronius/BYD cumulative charge/discharge counters
+have a meaningful common lifetime zero point. An unknown initially stored amount
+would introduce a constant energy offset whose relative influence decreases as
+throughput grows. No historical initial SoC or persistent baseline is invented.
+Results above 100% may reveal counter resets, inconsistent counters, unit or
+source-data problems, or a failure of the zero-point assumption.
+
+Sources and engineering units (all scale factors are applied by the decoder):
+
+| Quantity | SunSpec source | Decoded unit | Scale factor |
+| --- | --- | --- | --- |
+| PV power | Model 160 `module.DCW`, all classified MPPT modules | W | `DCW_SF` |
+| Battery charge/discharge power | Model 160 `module.DCW`, classified storage charge/discharge module respectively | W | `DCW_SF` |
+| Inverter AC output | Model 103 `W` | W | `W_SF` |
+| Operating State | Model 103 `St` | enum (`4` → `MPPT`) | none |
+| Lifetime charge/discharge energy | Model 160 `module.DCWH`, classified storage charge/discharge module respectively | Wh | `DCWH_SF` |
+| Battery SoC | Model 124 `ChaState` | percent (`% AhrRtg` in register metadata) | `ChaState_SF` |
+| Nominal battery capacity | **Model 120 `WHRtg`** | Wh | `WHRtg_SF` |
+
+Capacity really comes from Model 120, even though the existing diagnostic entity
+is associated with the inverter and the resulting lifetime sensor belongs to
+storage. Device placement does not determine SunSpec ownership. All energies are
+already normalized to Wh by decoding (`raw * 10^SF`), so no additional Wh/kWh
+conversion is performed. SoC is divided by 100 to obtain a fraction; the final
+ratio is multiplied by 100 to obtain percent.
+
+Sources must belong to the **same Modbus device ID**. Inverter Efficiency requires
+one Model 103 and one Model 160; Battery Lifetime Efficiency requires one each of
+Models 120, 124, and 160. Duplicate required models or multiple classified charge
+or discharge modules are ambiguous and make the affected sensor unavailable.
+Unrelated device IDs are never combined; separate complete systems can calculate
+independently. No meter or Solar API is required.
+
+Each calculation requires exactly one classified charge and discharge module,
+including valid explicit zero readings during PV-only operation. Missing modules
+are not inferred as zero. Inverter Efficiency also requires at least one MPPT
+and valid power from every classified MPPT (stricter than the existing PV Power
+sensor's sum of available values). Unknown modules do not contribute.
+
+Missing, offline, nonnumeric, negative, NaN, or infinite required numeric sources
+make the affected sensor unavailable. Effective DC input and charged lifetime
+energy must be positive; AC output may be zero. Nominal capacity must be positive
+and SoC must lie within 0–100%. Non-finite calculated results are unavailable.
+Discovery and recovery use the existing semantic-entity lifecycle.
+
+Keys are `inverter_efficiency` and `battery_lifetime_efficiency`. Suggested object
+IDs follow the existing role-prefix convention: `inverter_inverter_efficiency`
+and `storage_battery_lifetime_efficiency`. Unique IDs are
+`{entry_id}_device{device_id}_{role}_hlc_{key}`, with roles `inverter` and `storage`
+respectively. Existing sensors, defaults, identities, and calculations are unchanged.
+
 ## Optional local Fronius Solar API
 
 SunSpec/Modbus TCP remains the primary interface. The optional local Solar API V1

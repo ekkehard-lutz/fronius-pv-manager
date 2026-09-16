@@ -1,11 +1,12 @@
 """Home Assistant config-entry lifecycle for Fronius PV Manager."""
 
+import asyncio
 import logging
 from pathlib import Path
 from types import MappingProxyType
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -17,7 +18,7 @@ from .const import (
     DEFAULT_UNIT_ID,
 )
 from .coordinator import FroniusPVCoordinator
-from .transport import ModbusTcpEndpointTransport, ModbusTransportError
+from .transport import ModbusTcpEndpointTransport
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,20 +71,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
     }
     coordinator = FroniusPVCoordinator(hass, entry, transports, write_policies)
     entry.runtime_data = coordinator
+    coordinator.stop_unsubscribe = hass.bus.async_listen_once(
+        EVENT_HOMEASSISTANT_STOP, coordinator.async_stop
+    )
+    entry.async_on_unload(coordinator.stop_unsubscribe)
     try:
         await coordinator.storage_control.async_load()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_refresh()
-    except Exception:
-        await coordinator.storage_control.async_shutdown()
-        await coordinator.async_shutdown()
-        try:
-            await coordinator.async_close()
-        except ModbusTransportError:
-            _LOGGER.warning(
-                "Failed to close transport after platform setup failure",
-                exc_info=True,
-            )
+    except Exception, asyncio.CancelledError:
+        await coordinator.async_stop()
         del entry.runtime_data
         raise
     return True
@@ -91,16 +88,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
 
 async def async_unload_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -> bool:
     """Stop coordinator activity and close its persistent transport safely."""
+    if not hasattr(entry, "runtime_data"):
+        return True
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-
-    coordinator = entry.runtime_data
-    await coordinator.storage_control.async_shutdown()
-    await coordinator.async_shutdown()
-    try:
-        await coordinator.async_close()
-    except ModbusTransportError:
-        _LOGGER.warning("Failed to close Fronius Modbus transport", exc_info=True)
-    if hasattr(entry, "runtime_data"):
-        del entry.runtime_data
+    await entry.runtime_data.async_stop()
+    del entry.runtime_data
     return True

@@ -76,6 +76,7 @@ class FakeHass:
         self.data = {}
         self.state = CoreState.running
         self.config_entries = FakeConfigEntries()
+        self.bus = FakeBus()
         self.config = FakeConfig(config_dir or Path(tempfile.mkdtemp()))
 
     @property
@@ -204,6 +205,9 @@ class FakeDeviceTransport:
         self.device_id = device_id
         self.transport = transport
 
+    def write_holding_registers(self, address, words):
+        return self.transport.write_holding_registers(address, words)
+
     def read_holding_registers(self, address: int, count: int) -> tuple[int, ...]:
         """Read one device store and reset the session on transport failure."""
         if not self.endpoint.connected:
@@ -234,3 +238,25 @@ def model_chain(*models: tuple[int, int]) -> tuple[dict[int, int], dict[int, int
     registers[header] = 0xFFFF
     registers[header + 1] = 0
     return registers, payload_bases
+
+
+class FakeBus:
+    """Minimal one-shot event bus for lifecycle tests."""
+
+    def __init__(self):
+        self.listeners = {}
+
+    def async_listen_once(self, event, listener):
+        self.listeners.setdefault(event, []).append(listener)
+
+        def cancel():
+            if listener in self.listeners.get(event, []):
+                self.listeners[event].remove(listener)
+
+        return cancel
+
+    async def fire(self, event):
+        for listener in self.listeners.pop(event, []):
+            result = listener(None)
+            if result is not None:
+                await result

@@ -5,6 +5,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .semantics import classify_model_160_modules, physical_role_for_model
 
 
 class SolarEntity(CoordinatorEntity):
@@ -49,11 +50,20 @@ def setup_solar_entities(entry, async_add_entities, factory):
     def add_new():
         fresh = []
         for device in coordinator.entity_data.devices:
-            models = {model.model_id for model in device.discovered_models}
-            if not models.intersection({101, 102, 103, 111, 112, 113, 124}):
-                continue
+            roles = {
+                role.value
+                for model in device.discovered_models
+                if (role := physical_role_for_model(model.model_id)) is not None
+            }
+            for snapshot in device.decoded_models:
+                if snapshot.discovered.model_id == 160:
+                    roles.update(
+                        module.physical_role.value
+                        for module in classify_model_160_modules(snapshot.decoded)
+                        if module.physical_role is not None
+                    )
             for entity in factory(coordinator, entry.entry_id, device.device_id):
-                if entity.unique_id not in known:
+                if entity.role in roles and entity.unique_id not in known:
                     known.add(entity.unique_id)
                     fresh.append(entity)
         if fresh:

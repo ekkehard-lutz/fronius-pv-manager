@@ -1,213 +1,81 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. Future
-releases will use semantic versioning.
+All notable changes to Fronius PV Manager are documented here, starting with
+v1.0.0, the first official stable release. Pre-1.0 development releases remain
+available in Git history and GitHub releases.
 
 ## [Unreleased]
 
-### Fixed
+## [v1.0.1] - 2026-09-16
 
-- Bind prepared integration writes to their live session/discovery authority;
-  abort stale cleanup plans after preflight resets, retaining explicit retry state.
-- Reject malformed topology model containers and normalize invalid YAML dates
-  and oversized policy numbers without disabling readable integration setup.
-- Drain executor workers before releasing shared Modbus ownership on cancellation,
-  including polling, discovery, writes, and close; add idempotent HA stop cleanup
-  without automatic release writes.
-- Separate cached entity topology from live addressing; rediscover after session
-  invalidation/failure and periodically, rejecting unvalidated write addresses.
-- Confirm saved revisions through HA Store readback and retain remote cleanup
-  retry state when a suppressed storage failure prevents persistence.
-- Validate malformed persisted topology/control records and fail closed on
-  unsupported YAML mapping keys without disabling readable setup.
-- Allow explicit neutral Automatic without WChaMax or a default watt profile.
-- Gate supplemental battery entities on discovered storage capability.
+### Changed
 
-### Documentation and tests
+- Start public release history at v1.0.0 and consolidate its shipped features
+  and release-readiness fixes into the initial stable release summary.
+- Remove pre-1.0 development release sections from this changelog and refresh
+  outdated README version wording while preserving technical and safety guidance.
+- Update integration version metadata to v1.0.1. No runtime, API, entity,
+  register, or Write Policy behavior changes.
 
-- Document int + SF model scope, stable user setup, policy preservation, public
-  Energy Manager API boundaries, persistence limits, and shutdown semantics.
-- Add real executor cancellation/close races, real Store write-failure tests,
-  topology relocation, lifecycle and malformed-data regressions.
+## [v1.0.0] - 2026-09-16
 
-## [v0.3.0] - 2026-09-16
+Initial official stable release of Fronius PV Manager.
 
 ### Added
 
-- Seven high-level storage controls, status observation, persistent semantic
-  watt profiles, and verified policy-bound multi-register transitions.
-- Inward watt quantization, fixed 1 W UI steps, coherent minimum-direction changes,
-  and rejection of windows that cannot be represented.
-- Programmatic complete-window and remote ownership APIs with heartbeat leases,
-  runtime-only pre-remote snapshots, neutral-first release/expiry, policy/profile
-  restoration, and explicit retry after incomplete cleanup.
-- Optional read-only local Solar API Battery operation mode, Backup mode and
-  Battery standby entities with independent availability and automatic recovery.
-- Energy Manager API documentation and reported GEN24 remote-control verification.
-  The temporary hardware-test harness was removed before the stable release.
+- Local SunSpec Modbus TCP discovery and polling through a shared persistent
+  endpoint, supporting multiple configured device IDs and integer + scale-factor
+  models 1, 103, 120–124, 160, and 203.
+- Capability-based inverter, storage, and Smart Meter devices with operational
+  and diagnostic sensors, classified Model 160 channels, stable entity identities,
+  and English/German localization.
+- Offline startup using cached logical topology, per-device availability and
+  automatic recovery, including later-discovered capabilities.
+- Expert low-level Model 123/124 controls, disabled by default in the Entity
+  Registry, governed by a fail-closed installation Write Policy and authoritative
+  register validation. Entity enablement does not grant write permission.
+- Seven high-level storage controls: minimum reserve, grid-charging permission,
+  minimum/maximum charge power, minimum/maximum discharge power, and operating
+  mode; plus a read-only Storage control status sensor.
+- Persistent semantic whole-watt profiles, fixed 1 W UI steps, WChaMax-based
+  conversion, inward quantization, and rejection of unrepresentable power windows.
+  Explicit neutral Automatic does not require WChaMax or create a watt profile.
+- HLC/LLC coexistence with observed overrides: last explicit write wins, no
+  background target reassertion, and no lock or ownership over external clients.
+- Programmatic Energy Manager API for complete power windows and remote control,
+  with per-device ownership, heartbeat/watchdog leases, and runtime-only
+  pre-remote reserve, grid-permission, and user-profile snapshots.
+- Neutral-Automatic-first release and expiry cleanup, verified policy/profile
+  restoration, and retained retry state after incomplete cleanup. Previous
+  manual limits are not automatically restored.
+- Optional local, read-only Solar API Battery operation mode, Backup mode, and
+  Battery standby entities with independent availability, automatic recovery,
+  and storage-capability gating. SunSpec remains the primary interface.
 
-## [v0.2.1] - 2026-09-10
+### Safety and reliability
 
-### Fixed
-
-- Allow existing entries to start offline using persisted logical topology;
-  retain entities, recover per device, and add later-discovered capabilities.
-
-## [v0.2.0] - 2026-09-02
-
-### Added
-
-- First stable Fronius PV Manager release.
-- Local SunSpec discovery, model decoding, and polling for supported inverter,
-  storage, and Smart Meter roles.
-- Home Assistant Config Flow, stable semantic entity IDs, and operational and
-  diagnostic sensor integration.
-- Multi-device-ID support through one shared persistent Modbus TCP connection
-  per configured host and port.
-- Complete low-level writable-register inventory for SunSpec Models 123 and
-  124, with NUMBER and SELECT entities where GEN24 behavior and authoritative
-  constraints permit safe representation.
-
-### Safety
-
-- Added a fail-closed installation write policy, authoritative semantic
-  validation, exactly-one physical writes, mandatory verified readback, and
-  non-optimistic coordinator state.
-- Preserved GEN24-specific read-only or unsupported handling for controls that
-  cannot safely be exposed, including `WMaxLimPct_RmpTms`, `VAChaMax`, and the
-  dynamic nameplate-dependent `OutPFSet` domain.
-- Corrected `StorCtl_Mod` terminology to describe activation of charge and
-  discharge power-window limits rather than direct operating commands.
-
-### Validation
-
-- Hardware-tested on a Fronius Symo GEN24 10.0 with BYD storage and a Fronius
-  Smart Meter TS 65A-3.
-- Confirmed policy-disabled rejection before Modbus I/O, storage power-window
-  controls, forced charging and discharging, grid-charging permission, verified
-  readback, and restoration of the original register state.
-- Documented the hardware-validated reference setup, capability-based
-  compatibility model, and external contributor workflow.
-
-## [v0.2.0-beta.9] - 2026-09-02
-
-### Added
-
-- Completed the writable-register inventory for SunSpec Models 123 and 124:
-  18 writable Model 123 registers and 7 writable Model 124 registers.
-- The packaged default write policy now lists all 25 writable registers
-  explicitly. Only `MinRsvPct` and `ChaGriSet` remain enabled by default.
-- Added NUMBER and SELECT controls for safely representable GEN24 registers.
-  Low-level controls remain disabled by default in the Home Assistant Entity
-  Registry.
-- Represented `StorCtl_Mod` as one SELECT containing its documented bit
-  combinations.
-
-### Changed
-
-- `WMaxLimPct_RmpTms` retains general read-write register metadata but is
-  exposed as a read-only SENSOR on GEN24 because GEN24 treats it as read-only.
-- `MinRsvPct` uses the project-authoritative hard range of 0 through 100%.
-
-### Safety
-
-- `VAChaMax` remains defined but unexposed because it is currently unsupported
-  by GEN24 and has no authoritative finite semantic range.
-- `OutPFSet` remains unexposed because its valid domain consists of two dynamic,
-  nameplate-dependent intervals.
-- Existing write safety is unchanged: explicit policy permission, semantic
-  validation, exactly one physical write, verified readback, and
-  non-optimistic state remain required.
+- Live topology validation separate from the offline entity cache, with bounded
+  rediscovery and session/discovery-bound write plans that reject stale addresses.
+  Invalidation during cleanup preparation aborts stale plans without rebuilding
+  or executing them; recovery allows a fresh explicit cleanup retry.
+- Cancellation-safe shared I/O ownership for polling, discovery, writes and close,
+  including repeated cancellation. Each register write is attempted at most once and
+  verified by readback; HLC actions use ordered multi-register sequences without
+  speculative rollback or automatic retries of uncertain writes.
+- HA Store revision/readback confirmation that detects suppressed persistence
+  failures and retains cleanup retry state, without claiming power-loss durability.
+- Defensive persisted-data validation and malformed-policy handling that preserve
+  readable setup while rejecting unsafe writes.
+- Idempotent Home Assistant stop/unload cleanup that cancels watchdogs, drains
+  active I/O and closes endpoints without automatic remote release/restore writes.
+  Startup never replays persisted control settings.
 
 ### Validation
 
-- Ruff passed with all checks successful.
-- 566 tests passed with 1 warning.
-- `git diff --check` passed.
-
-## [v0.2.0-beta.8] - 2026-09-02
-
-### Changed
-
-- Added one shared persistent Modbus TCP endpoint and client per configured
-  host and port. Bound device-ID views share that endpoint.
-- Runtime polling and writes remain serialized through the shared endpoint.
-- Failed requests reset the endpoint so later requests can reconnect.
-- Multi-device partial recovery remains supported.
-
-### Safety
-
-- Uncertain writes are never retried automatically.
-- Verified readback remains required after writes.
-
-## [v0.2.0-beta.7] - 2026-09-01
-
-### Changed
-
-- Fresh Home Assistant entities now use deterministic, language-independent
-  semantic object IDs. Normal sensor object IDs no longer derive from translated
-  display names, while Home Assistant continues to own the device-name prefix.
-- Fresh sensor IDs therefore include examples such as
-  `sensor.speicher_discharging_current`,
-  `sensor.speicher_state_of_charge`, and
-  `sensor.smart_meter_ts_65a_3_exported_energy`.
-- Model 160 uses runtime-classified semantic IDs such as `mppt_1_dc_power`,
-  `mppt_2_dc_power`, `charging_power`, and `discharging_power`.
-- Low-level writable controls retain the explicit `_reg_` convention, including
-  `storage_reg_minimum_storage_reserve` and `storage_reg_grid_charging`.
-
-### Compatibility
-
-- Unique-ID construction is unchanged.
-- Existing entity IDs from earlier beta releases are not migrated. A clean
-  installation receives the new IDs automatically.
-- No register semantics, Modbus transport, codec, write policy, or write-runtime
-  behavior changed.
-
-### Validation
-
-- Ruff passed.
-- 555 tests passed.
-- `git diff --check` passed.
-
-## [v0.2.0-beta.6] - 2026-09-01
-
-### Changed
-
-- Low-level writable register entities are now exposed independently of
-  `write_policy.yaml` when authoritative metadata allows them to be represented
-  safely.
-- Low-level NUMBER and SELECT entities remain disabled by default in the Home
-  Assistant Entity Registry. Enabling an entity does not grant Modbus write
-  permission.
-- Missing policy entries leave supported controls readable but write-protected.
-- Added optional `enabled: false` policy entries to temporarily disable writing
-  while retaining and validating configured constraints. Omitting `enabled`
-  remains equivalent to `enabled: true` for compatibility.
-- Policy changes continue to require an integration reload or Home Assistant
-  restart.
-- NUMBER controls without finite authoritative hard bounds remain unexposed;
-  no limits are guessed or invented.
-- Without an active narrowing policy, NUMBER presentation uses authoritative
-  hard limits and SELECT presentation uses all documented enum values.
-- Localized low-level control names now use a `Register` prefix.
-- Fresh registrations use stable language-independent low-level object IDs,
-  including `number.storage_reg_minimum_storage_reserve` and
-  `select.storage_reg_grid_charging`.
-
-### Safety
-
-- Missing or disabled write approval is rejected before Modbus I/O.
-- `WriteRuntime` remains the authoritative write-permission boundary.
-- Existing exactly-one-write, verified-readback, non-optimistic behavior is
-  preserved.
-- Policy may only narrow authoritative register constraints, and invalid policy
-  snapshots remain fail-closed.
-
-### Compatibility
-
-- Existing `write_policy.yaml` files without `enabled` remain valid.
-- The packaged default write policy remains unchanged.
-- No registry migration is included for previous beta entity IDs because beta
-  test installations are expected to be removed before fresh-install testing
-  of the new naming scheme.
+- 954 automated tests passed on Home Assistant 2026.9.1 and the supported minimum
+  2026.8.0, including real-worker cancellation races, topology relocation,
+  persistence failures, shutdown and malformed-input regressions.
+- Hardware validation reported on a Fronius Symo GEN24 10.0, BYD Battery-Box
+  Premium HVM 11.0 and Fronius Smart Meter TS 65A-3, including storage control and
+  remote acquire, heartbeat, release and watchdog cleanup. These observations
+  apply to the tested setup, not all firmware, batteries or Full Backup wiring.

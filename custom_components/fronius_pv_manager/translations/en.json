@@ -57,6 +57,9 @@
       }
     },
     "sensor": {
+      "consumption_power": {"name": "Consumption Power"},
+      "autarky": {"name": "Autarky"},
+      "self_consumption": {"name": "Self-Consumption"},
       "pv_power": {"name": "PV Power"},
       "grid_import_power": {"name": "Grid Import Power"},
       "grid_export_power": {"name": "Grid Export Power"},

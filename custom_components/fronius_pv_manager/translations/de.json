@@ -57,6 +57,9 @@
       }
     },
     "sensor": {
+      "consumption_power": {"name": "Verbrauchsleistung"},
+      "autarky": {"name": "Autarkiegrad"},
+      "self_consumption": {"name": "Eigenverbrauch"},
       "pv_power": {"name": "PV-Leistung"},
       "grid_import_power": {"name": "Netzbezugsleistung"},
       "grid_export_power": {"name": "Netzeinspeiseleistung"},

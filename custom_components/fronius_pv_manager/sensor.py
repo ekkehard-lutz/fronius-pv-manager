@@ -1,5 +1,6 @@
 """Read-only sensor entities backed exclusively by coordinator data."""
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -535,7 +536,83 @@ class SolarPowerSensor(SolarEntity, SensorEntity):
             return None
         # Fronius Model 203 at the grid connection: positive import, negative export.
         # https://manuals.fronius.com/html/4204102649/en-US.html (Meter Model)
-        return max(power.value if self.key == "grid_import_power" else -power.value, 0)
+        return _grid_direction_power(power.value, self.key)
+
+    @property
+    def native_value(self):
+        return self.value
+
+
+def _grid_direction_power(power, key):
+    """Share the existing signed-meter semantics with site calculations."""
+    return max(power if key == "grid_import_power" else -power, 0)
+
+
+def _active_power(coordinator, device_id, model_id):
+    """Read one finite active-power value without using cached offline readings."""
+    if not coordinator.last_update_success:
+        return None
+    device = next(
+        (d for d in coordinator.data.devices if d.device_id == device_id), None
+    )
+    if device is None or not device.available:
+        return None
+    models = [s for s in device.decoded_models if s.discovered.model_id == model_id]
+    if len(models) != 1 or not models[0].available:
+        return None
+    power = models[0].decoded.fixed.get("W")
+    value = power.value if power is not None else None
+    return value if type(value) in (int, float) and math.isfinite(value) else None
+
+
+class SolarConsumptionSensor(SolarEntity, SensorEntity):
+    """Site consumption and instantaneous ratios on the existing inverter."""
+
+    def __init__(self, coordinator, entry_id, device_id, key):
+        super().__init__(coordinator, entry_id, device_id, key, "inverter")
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        if key == "consumption_power":
+            self._attr_native_unit_of_measurement = UnitOfPower.WATT
+            self._attr_device_class = SensorDeviceClass.POWER
+
+    @property
+    def value(self):
+        # Topology, rather than just online devices, prevents silently switching
+        # sources when a meter or inverter goes offline. No site mapping exists.
+        topology = self.coordinator.entity_data.devices
+        inverters = [
+            d.device_id
+            for d in topology
+            if any(m.model_id == 103 for m in d.discovered_models)
+        ]
+        meters = [
+            d.device_id
+            for d in topology
+            if any(m.model_id == 203 for m in d.discovered_models)
+        ]
+        if inverters != [self.device_id] or len(meters) != 1:
+            return None
+        ac_power = _active_power(self.coordinator, self.device_id, 103)
+        meter_power = _active_power(self.coordinator, meters[0], 203)
+        if ac_power is None or meter_power is None:
+            return None
+        imported = _grid_direction_power(meter_power, "grid_import_power")
+        exported = _grid_direction_power(meter_power, "grid_export_power")
+        consumption = max(0, ac_power + imported - exported)
+        if not math.isfinite(consumption):
+            return None
+        if self.key == "consumption_power":
+            return consumption
+        if self.key == "autarky":
+            if consumption <= 0:
+                return None
+            ratio = 100 * (1 - imported / consumption)
+        else:
+            if ac_power <= 0:
+                return None
+            ratio = 100 * consumption / ac_power
+        return min(100, max(0, ratio))
 
     @property
     def native_value(self):
@@ -544,6 +621,10 @@ class SolarPowerSensor(SolarEntity, SensorEntity):
 
 def _solar_sensors(coordinator, entry_id, device_id):
     return [
+        *(
+            SolarConsumptionSensor(coordinator, entry_id, device_id, key)
+            for key in ("consumption_power", "autarky", "self_consumption")
+        ),
         BatteryOperationMode(
             coordinator, entry_id, device_id, "battery_operation_mode", "storage"
         ),

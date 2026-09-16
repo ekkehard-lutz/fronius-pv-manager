@@ -387,13 +387,22 @@ async def test_solar_roles_and_later_discovery_keep_identities():
     def solar():
         return [e for e in entities if isinstance(e, SolarEntity)]
 
-    assert {e.key for e in solar()} == {"pv_power", "backup_mode"}
+    assert {e.key for e in solar()} == {
+        "pv_power",
+        "backup_mode",
+        "consumption_power",
+        "autarky",
+        "self_consumption",
+    }
     original = {e.key: e.unique_id for e in solar()}
     replacement = WritableDevice()
     device.registers = replacement.registers
     coordinator._discovery_deadlines[1] = 0
     await coordinator.async_refresh()
     assert {e.key for e in solar()} == {
+        "consumption_power",
+        "autarky",
+        "self_consumption",
         "pv_power",
         "backup_mode",
         "battery_standby",
@@ -404,7 +413,7 @@ async def test_solar_roles_and_later_discovery_keep_identities():
     await coordinator.async_refresh()
     device.fail_reads = False
     await coordinator.async_refresh()
-    assert len(solar()) == 4
+    assert len(solar()) == 7
     await coordinator.async_stop()
 
 

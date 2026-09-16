@@ -844,6 +844,47 @@ object IDs are `inverter_pv_power`, `meter_grid_import_power`, and
 names are provided. Entities also appear when topology is discovered after
 startup. These sensors need no Solar API access and leave raw sensors unchanged.
 
+### Consumption and instantaneous percentages
+
+Three additional read-only semantic sensors belong to the existing inverter:
+
+| Sensor (English / German) | Calculation | Unit |
+| --- | --- | --- |
+| Consumption Power / Verbrauchsleistung | `max(0, inverter AC power + grid import power - grid export power)` | W |
+| Autarky / Autarkiegrad | `100 * (1 - grid import power / consumption power)`, clamped to 0–100 | % |
+| Self-Consumption / Eigenverbrauch | `100 * consumption power / inverter AC power`, clamped to 0–100 | % |
+
+These are instantaneous measurements (`state_class: measurement`), not ratios of
+accumulated energy. Consumption Power has device class `power`; the percentage
+sensors have no device class. Negative consumption residuals caused by measurement
+timing are clamped to zero. Autarky is unavailable at zero consumption.
+Self-Consumption is unavailable when inverter AC output is zero or negative.
+Any missing, invalid, or offline required source makes the derived value
+unavailable; missing measurements are never replaced with zero.
+
+**Self-Consumption uses locally consumed inverter AC output, not PV Power.**
+Battery discharge therefore contributes through inverter AC power. This is the
+integration's defined semantic behavior, supported by empirical comparison with
+native Fronius SolarNet readings; it is not claimed as a vendor specification.
+For example, 991.4 W inverter AC output and 679.1 W grid export yield 312.3 W
+consumption, 100% autarky, and approximately 31.50% self-consumption, even when
+that output comes from forced battery discharge. With 4505 W inverter AC and
+6329 W grid import, consumption is 10834 W, autarky approximately 41.58%, and
+self-consumption 100%.
+
+Calculation requires exactly one discovered Model 103 inverter and one Model 203
+meter in the integration entry. The meter must measure the grid connection, as
+for Grid Import/Export Power above. There is currently no explicit site/meter
+mapping: multiple inverters or meters make these three derived sensors unavailable,
+even if only one is online. The calculation recovers when the required sources
+become available, including discovery after startup. Solar API access is not needed.
+
+Entity and translation keys are `consumption_power`, `autarky`, and
+`self_consumption`. Stable English suggested object IDs are
+`inverter_consumption_power`, `inverter_autarky`, and `inverter_self_consumption`.
+Unique IDs follow `{entry_id}_device{device_id}_inverter_hlc_{key}` using the
+inverter's Modbus device ID. Existing raw and semantic sensors are unchanged.
+
 ## Optional local Fronius Solar API
 
 SunSpec/Modbus TCP remains the primary interface. The optional local Solar API V1

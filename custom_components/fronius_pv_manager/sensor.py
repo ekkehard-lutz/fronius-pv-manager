@@ -21,7 +21,7 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -39,6 +39,7 @@ from .models import (
     RegisterDefinition,
 )
 from .semantics import Model160ModuleKind, classify_model_160_module
+from .solar_entity import SolarEntity, setup_solar_entities
 
 _UNIT_METADATA = {
     "W": (UnitOfPower.WATT, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
@@ -109,27 +110,43 @@ async def async_setup_entry(
     entry: FroniusPVConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Create catalog-backed sensors from the first coordinator snapshot."""
+    """Create cached sensors and add newly discovered sources during polling."""
+    # Import after sensor metadata helpers are defined: storage discovery shares them.
+    from .storage_status import setup_storage_status
+
+    setup_storage_status(entry, async_add_entities)
+    setup_solar_entities(entry, async_add_entities, _solar_sensors)
     coordinator = entry.runtime_data
-    sources = _sensor_sources(coordinator)
-    devices_by_role: dict[PhysicalDeviceRole, set[int]] = {}
-    for source in sources:
-        devices_by_role.setdefault(source.role, set()).add(source.device_id)
-    async_add_entities(
-        FroniusPVSensor(
-            coordinator,
-            entry.entry_id,
-            source,
-            distinguish_device_name=len(devices_by_role[source.role]) > 1,
+    known: set[str] = set()
+
+    @callback
+    def add_new_entities():
+        sources = _sensor_sources(coordinator)
+        devices_by_role: dict[PhysicalDeviceRole, set[int]] = {}
+        for source in sources:
+            devices_by_role.setdefault(source.role, set()).add(source.device_id)
+        entities = list(
+            FroniusPVSensor(
+                coordinator,
+                entry.entry_id,
+                source,
+                distinguish_device_name=len(devices_by_role[source.role]) > 1,
+            )
+            for source in sources
         )
-        for source in sources
-    )
+        fresh = [entity for entity in entities if entity.unique_id not in known]
+        known.update(entity.unique_id for entity in fresh)
+        if fresh:
+            async_add_entities(fresh)
+
+    add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
 def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ...]:
     """Build stable source descriptors without retaining decoded values."""
     sources = []
-    for device in coordinator.data.devices:
+    for device in coordinator.entity_data.devices:
         device_metadata = _device_metadata(device.decoded_models)
         occurrences: dict[int, int] = {}
         for snapshot in device.decoded_models:
@@ -159,9 +176,7 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
                     )
                 )
             for block in snapshot.definition.repeating_blocks:
-                definitions = {
-                    register.name: register for register in block.registers
-                }
+                definitions = {register.name: register for register in block.registers}
                 mppt_number = 0
                 for instance in snapshot.decoded.repeating.get(block.name, ()):
                     classified = classify_model_160_module(instance)
@@ -268,7 +283,22 @@ class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
             ),
             None,
         )
-        return super().available and device is not None and device.available
+        matching = (
+            []
+            if device is None
+            else [
+                model
+                for model in device.decoded_models
+                if model.discovered.model_id == self._source.model_id
+            ]
+        )
+        return (
+            super().available
+            and device is not None
+            and device.available
+            and self._source.model_occurrence < len(matching)
+            and matching[self._source.model_occurrence].available
+        )
 
     @property
     def native_value(self):
@@ -387,7 +417,7 @@ def _device_metadata(
         (snapshot for snapshot in snapshots if snapshot.discovered.model_id == 1),
         None,
     )
-    if common is None:
+    if common is None or not common.decoded.fixed:
         return None
     fixed = common.decoded.fixed
     return DeviceMetadata(
@@ -404,9 +434,7 @@ def _device_info(
     distinguish_name: bool,
 ) -> DeviceInfo:
     """Build localized fallback or decoded physical device presentation."""
-    identifiers = {
-        (DOMAIN, f"{entry_id}:device{source.device_id}:{source.role.value}")
-    }
+    identifiers = {(DOMAIN, f"{entry_id}:device{source.device_id}:{source.role.value}")}
     metadata = (
         source.device_metadata
         if source.role is not PhysicalDeviceRole.STORAGE
@@ -441,9 +469,7 @@ def _device_info(
     return DeviceInfo(**info)
 
 
-def _model_160_translation_key(
-    kind: Model160ModuleKind, register_name: str
-) -> str:
+def _model_160_translation_key(kind: Model160ModuleKind, register_name: str) -> str:
     """Select presentation semantics from the existing module classifier."""
     semantic = {
         Model160ModuleKind.MPPT: "mppt",
@@ -457,3 +483,19 @@ def _enum_option(label: str) -> str:
     """Normalize one decoded enum label to a stable HA option identifier."""
     label = label.replace("%", " percent ")
     return re.sub(r"[^a-z0-9]+", "_", label.casefold()).strip("_")
+
+
+class BatteryOperationMode(SolarEntity, SensorEntity):
+    """Unrestricted raw strings allow future firmware states without enum rejection."""
+
+    @property
+    def native_value(self):
+        return self.value
+
+
+def _solar_sensors(coordinator, entry_id, device_id):
+    return [
+        BatteryOperationMode(
+            coordinator, entry_id, device_id, "battery_operation_mode", "storage"
+        )
+    ]

@@ -11,8 +11,9 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 
 from .const import CONF_DEVICE_IDS, DEFAULT_PORT, DOMAIN
 from .model_decoder import decode_model
-from .register_maps import MODEL_1
+from .register_maps import get_model_definition
 from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
+from .topology import CONF_TOPOLOGY, model_topology
 from .transport import (
     ModbusConnectionError,
     ModbusTcpTransport,
@@ -32,6 +33,7 @@ class ValidationResult:
     """Stable identity metadata obtained during endpoint validation."""
 
     serial_number: str | None
+    topology: dict
 
 
 def parse_device_ids(value: str) -> tuple[int, ...]:
@@ -46,8 +48,7 @@ def parse_device_ids(value: str) -> tuple[int, ...]:
     except ValueError as err:
         raise ValueError("device IDs must be integers") from err
     if any(
-        not _MIN_DEVICE_ID <= device_id <= _MAX_DEVICE_ID
-        for device_id in device_ids
+        not _MIN_DEVICE_ID <= device_id <= _MAX_DEVICE_ID for device_id in device_ids
     ):
         raise ValueError("device IDs must be between 1 and 247")
     if len(set(device_ids)) != len(device_ids):
@@ -64,6 +65,7 @@ def _validate_endpoint(
     """Synchronously validate and close every requested SunSpec participant."""
     factory = transport_factory or ModbusTcpTransport
     transports: list[tuple[int, ModbusTcpTransport]] = []
+    topology = {}
     serials: list[tuple[int, bool, str]] = []
     try:
         for device_id in device_ids:
@@ -77,27 +79,33 @@ def _validate_endpoint(
             try:
                 transport.connect()
                 discovered = SunSpecDiscovery(transport).discover()
+                records = []
+                for model in discovered:
+                    decoded = None
+                    if model.model_id in {1, 160}:
+                        try:
+                            decoded = decode_model(
+                                get_model_definition(model.model_id),
+                                read_holding_registers_chunked(
+                                    transport,
+                                    model.base_address,
+                                    model.length,
+                                ),
+                            )
+                        except ValueError as err:
+                            raise SunSpecDiscoveryError(
+                                f"invalid identity structure for model {model.model_id}"
+                            ) from err
+                    records.append(model_topology(model, decoded))
+                topology[str(device_id)] = records
                 model_ids = {model.model_id for model in discovered}
-                model_1 = next(
-                    (model for model in discovered if model.model_id == 1), None
+                common = next(
+                    (record for record in records if record["model"]["model_id"] == 1),
+                    None,
                 )
-                if model_1 is not None:
-                    try:
-                        payload = read_holding_registers_chunked(
-                            transport,
-                            model_1.base_address,
-                            model_1.length,
-                        )
-                        serial = decode_model(MODEL_1, payload).fixed["SN"].value
-                    except (ModbusTransportError, ValueError):
-                        _LOGGER.debug(
-                            "Could not read Model 1 identity from device ID %s",
-                            device_id,
-                            exc_info=True,
-                        )
-                    else:
-                        if isinstance(serial, str) and (serial := serial.strip()):
-                            serials.append((device_id, 103 in model_ids, serial))
+                serial = common["fixed"].get("SN") if common else None
+                if isinstance(serial, str) and (serial := serial.strip()):
+                    serials.append((device_id, 103 in model_ids, serial))
             except Exception:
                 _LOGGER.debug(
                     "Config flow validation failed for Modbus device ID %s",
@@ -120,7 +128,7 @@ def _validate_endpoint(
         if serials
         else None
     )
-    return ValidationResult(serial_number)
+    return ValidationResult(serial_number, topology)
 
 
 def normalize_host(host: str) -> str:
@@ -228,6 +236,7 @@ class FroniusPVManagerConfigFlow(ConfigFlow, domain=DOMAIN):
                                 CONF_HOST: host,
                                 CONF_PORT: port,
                                 CONF_DEVICE_IDS: list(device_ids),
+                                CONF_TOPOLOGY: validation.topology,
                             },
                         )
             user_input = {**user_input, CONF_HOST: host}

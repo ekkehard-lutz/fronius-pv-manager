@@ -1,7 +1,7 @@
 """Policy-approved writable enum register entities."""
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -18,6 +18,7 @@ from .coordinator import FroniusPVCoordinator
 from .models import EntityPlatform
 from .number import _entity_category
 from .sensor import _device_info
+from .storage_entity import StorageEntity, setup_storage_entities
 
 
 async def async_setup_entry(
@@ -26,20 +27,32 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create catalog select entities independently of write policy."""
+    setup_storage_entities(entry, async_add_entities, _storage_modes)
     coordinator = entry.runtime_data
-    sources = control_entity_sources(coordinator, EntityPlatform.SELECT)
-    devices_by_role = {}
-    for source in sources:
-        devices_by_role.setdefault(source.role, set()).add(source.device_id)
-    async_add_entities(
-        FroniusPVSelect(
-            coordinator,
-            entry.entry_id,
-            source,
-            distinguish_device_name=len(devices_by_role[source.role]) > 1,
+    known: set[str] = set()
+
+    @callback
+    def add_new_entities():
+        sources = control_entity_sources(coordinator, EntityPlatform.SELECT)
+        devices_by_role = {}
+        for source in sources:
+            devices_by_role.setdefault(source.role, set()).add(source.device_id)
+        entities = list(
+            FroniusPVSelect(
+                coordinator,
+                entry.entry_id,
+                source,
+                distinguish_device_name=len(devices_by_role[source.role]) > 1,
+            )
+            for source in sources
         )
-        for source in sources
-    )
+        fresh = [entity for entity in entities if entity.unique_id not in known]
+        known.update(entity.unique_id for entity in fresh)
+        if fresh:
+            async_add_entities(fresh)
+
+    add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
 class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
@@ -73,9 +86,7 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
                 source.entity.key,
             )
         )
-        self._attr_device_info = _device_info(
-            entry_id, source, distinguish_device_name
-        )
+        self._attr_device_info = _device_info(entry_id, source, distinguish_device_name)
 
     @property
     def available(self) -> bool:
@@ -88,7 +99,22 @@ class FroniusPVSelect(CoordinatorEntity[FroniusPVCoordinator], SelectEntity):
             ),
             None,
         )
-        return super().available and device is not None and device.available
+        matching = (
+            []
+            if device is None
+            else [
+                model
+                for model in device.decoded_models
+                if model.discovered.model_id == self._source.model_id
+            ]
+        )
+        return (
+            super().available
+            and device is not None
+            and device.available
+            and self._source.model_occurrence < len(matching)
+            and matching[self._source.model_occurrence].available
+        )
 
     @property
     def current_option(self) -> str | None:
@@ -146,8 +172,27 @@ def _policy_options(source: ControlEntitySource) -> dict[str, int]:
     documented = source.register.enum or {}
     policy = source.policy if source.policy and source.policy.enabled else None
     allowed = policy.allowed_enum_values if policy else None
-    return {
-        str(raw): raw
-        for raw in documented
-        if allowed is None or raw in allowed
-    }
+    return {str(raw): raw for raw in documented if allowed is None or raw in allowed}
+
+
+class StorageMode(StorageEntity, SelectEntity):
+    """Select a verified storage mode without discarding watt settings."""
+
+    _attr_options = ["automatic", "manual", "remote"]
+
+    @property
+    def current_option(self):
+        try:
+            self.control.snapshot(self._source.device_id)
+            return self.control.mode(self._source.device_id)
+        except ServiceValidationError:
+            return None
+
+    async def async_select_option(self, option):
+        if option not in self.options:
+            raise ServiceValidationError("unknown storage operating mode")
+        await self.change(mode=option)
+
+
+def _storage_modes(coordinator, entry_id, source):
+    return [StorageMode(coordinator, entry_id, source, "operating_mode")]

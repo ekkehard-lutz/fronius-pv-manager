@@ -42,6 +42,7 @@ from custom_components.fronius_pv_manager.sensor import (
     FroniusPVSensor,
     async_setup_entry,
 )
+from custom_components.fronius_pv_manager.solar_entity import SolarEntity
 from tests.runtime_fakes import FakeEntry, FakeHass, FakeTransport
 
 
@@ -93,7 +94,9 @@ async def _entities_for(*snapshots: DecodedModelSnapshot):
     await async_setup_entry(
         coordinator.hass,
         entry,
-        lambda new_entities: entities.extend(new_entities),
+        lambda new_entities: entities.extend(
+            e for e in new_entities if not isinstance(e, SolarEntity)
+        ),
     )
     return coordinator, entities, transport
 
@@ -124,7 +127,9 @@ async def _entities_for_devices(
     await async_setup_entry(
         hass,
         entry,
-        lambda new_entities: entities.extend(new_entities),
+        lambda new_entities: entities.extend(
+            e for e in new_entities if not isinstance(e, SolarEntity)
+        ),
     )
     return coordinator, entities, transports
 
@@ -161,7 +166,7 @@ def _model_1_payload(
 
 
 @pytest.mark.asyncio
-async def test_setup_creates_only_catalog_sensor_entities() -> None:
+async def test_setup_creates_catalog_sensors_and_storage_control_status() -> None:
     """Scale factors and non-sensor catalog entries do not create sensors."""
     _, entities, _ = await _entities_for(_snapshot(MODEL_103), _snapshot(MODEL_124))
 
@@ -172,7 +177,8 @@ async def test_setup_creates_only_catalog_sensor_entities() -> None:
         for definition in (MODEL_103, MODEL_124)
         for register in definition.registers
     )
-    assert len(entities) == expected
+    assert len(entities) == expected + 1
+    assert sum(isinstance(entity, FroniusPVSensor) for entity in entities) == expected
     assert not _by_register(entities, "W_SF")
     assert not _by_register(entities, "ChaGriSet")
 
@@ -191,7 +197,9 @@ async def test_unknown_discovered_model_creates_no_entities() -> None:
     await async_setup_entry(
         coordinator.hass,
         entry,
-        lambda new_entities: entities.extend(new_entities),
+        lambda new_entities: entities.extend(
+            e for e in new_entities if not isinstance(e, SolarEntity)
+        ),
     )
 
     assert entities == []

@@ -1,7 +1,6 @@
 """Tests for the Home Assistant SunSpec runtime coordinator."""
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.fronius_pv_manager.coordinator import FroniusPVCoordinator
 from tests.runtime_fakes import (
@@ -59,17 +58,18 @@ async def test_refresh_reads_cached_payload_without_repeating_discovery() -> Non
 
 
 @pytest.mark.asyncio
-async def test_only_device_failure_marks_coordinator_unavailable_and_recovers() -> None:
-    """A sole failed device fails the refresh and later recovers cleanly."""
+async def test_only_device_failure_marks_device_unavailable_and_recovers() -> None:
+    """A sole failed device publishes unavailable data and later recovers."""
     coordinator, _, transport, _ = coordinator_with_models((1, 65))
     await coordinator.async_discover()
     transport.fail_reads = True
 
-    with pytest.raises(UpdateFailed):
-        await coordinator._async_update_data()
+    data = await coordinator._async_update_data()
+    assert not any(device.available for device in data.devices)
 
     await coordinator.async_refresh()
-    assert not coordinator.last_update_success
+    assert coordinator.last_update_success
+    assert not coordinator.data.devices[0].available
     transport.fail_reads = False
     await coordinator.async_refresh()
     assert coordinator.last_update_success
@@ -158,7 +158,7 @@ async def test_partial_failure_keeps_other_device_snapshot_fresh() -> None:
     assert data.devices[0].available
     assert data.devices[0].decoded_models
     assert not data.devices[1].available
-    assert data.devices[1].decoded_models == ()
+    assert not data.devices[1].decoded_models[0].decoded.fixed
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_shared_endpoint_resets_after_first_device_and_recovers_second() -
     data = await coordinator._async_update_data()
 
     assert not data.devices[0].available
-    assert data.devices[0].decoded_models == ()
+    assert not data.devices[0].decoded_models[0].decoded.fixed
     assert data.devices[1].available
     assert data.devices[1].decoded_models
     assert endpoint.reset_calls == 1
@@ -188,8 +188,8 @@ async def test_shared_endpoint_resets_after_first_device_and_recovers_second() -
 
 
 @pytest.mark.asyncio
-async def test_shared_endpoint_still_fails_refresh_when_all_devices_fail() -> None:
-    """Session recovery does not mask an overall endpoint refresh failure."""
+async def test_shared_endpoint_publishes_unavailable_when_all_devices_fail() -> None:
+    """All device failures remain runtime state instead of failing the refresh."""
     registers_1, _ = model_chain((103, 50))
     registers_200, _ = model_chain((203, 105))
     inverter = FakeTransport(registers_1)
@@ -203,8 +203,8 @@ async def test_shared_endpoint_still_fails_refresh_when_all_devices_fail() -> No
     await coordinator.async_discover()
     inverter.fail_reads = meter.fail_reads = True
 
-    with pytest.raises(UpdateFailed):
-        await coordinator._async_update_data()
+    data = await coordinator._async_update_data()
+    assert not any(device.available for device in data.devices)
 
     assert endpoint.reset_calls == 2
 

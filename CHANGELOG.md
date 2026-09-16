@@ -5,16 +5,53 @@ releases will use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Bind prepared integration writes to their live session/discovery authority;
+  abort stale cleanup plans after preflight resets, retaining explicit retry state.
+- Reject malformed topology model containers and normalize invalid YAML dates
+  and oversized policy numbers without disabling readable integration setup.
+- Drain executor workers before releasing shared Modbus ownership on cancellation,
+  including polling, discovery, writes, and close; add idempotent HA stop cleanup
+  without automatic release writes.
+- Separate cached entity topology from live addressing; rediscover after session
+  invalidation/failure and periodically, rejecting unvalidated write addresses.
+- Confirm saved revisions through HA Store readback and retain remote cleanup
+  retry state when a suppressed storage failure prevents persistence.
+- Validate malformed persisted topology/control records and fail closed on
+  unsupported YAML mapping keys without disabling readable setup.
+- Allow explicit neutral Automatic without WChaMax or a default watt profile.
+- Gate supplemental battery entities on discovered storage capability.
+
+### Documentation and tests
+
+- Document int + SF model scope, stable user setup, policy preservation, public
+  Energy Manager API boundaries, persistence limits, and shutdown semantics.
+- Add real executor cancellation/close races, real Store write-failure tests,
+  topology relocation, lifecycle and malformed-data regressions.
+
+## [v0.3.0] - 2026-09-16
+
 ### Added
 
-- Initial Fronius PV Manager project structure.
-- MIT license and Home Assistant/HACS metadata.
-- English and German localization foundation.
-- Immutable SunSpec register and model core data types.
-- Capability-based device metadata.
-- Validation for register definitions, model layouts, and discovered models.
-- Unit tests for the core model.
-- CI-ready validation with Ruff and pytest.
+- Seven high-level storage controls, status observation, persistent semantic
+  watt profiles, and verified policy-bound multi-register transitions.
+- Inward watt quantization, fixed 1 W UI steps, coherent minimum-direction changes,
+  and rejection of windows that cannot be represented.
+- Programmatic complete-window and remote ownership APIs with heartbeat leases,
+  runtime-only pre-remote snapshots, neutral-first release/expiry, policy/profile
+  restoration, and explicit retry after incomplete cleanup.
+- Optional read-only local Solar API Battery operation mode, Backup mode and
+  Battery standby entities with independent availability and automatic recovery.
+- Energy Manager API documentation and reported GEN24 remote-control verification.
+  The temporary hardware-test harness was removed before the stable release.
+
+## [v0.2.1] - 2026-09-10
+
+### Fixed
+
+- Allow existing entries to start offline using persisted logical topology;
+  retain entities, recover per device, and add later-discovered capabilities.
 
 ## [v0.2.0] - 2026-09-02
 

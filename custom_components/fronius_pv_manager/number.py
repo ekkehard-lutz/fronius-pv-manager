@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -20,6 +20,7 @@ from .control_entity import (
 from .coordinator import FroniusPVCoordinator
 from .models import EntityCategoryHint, EntityPlatform
 from .sensor import _device_info
+from .storage_entity import StorageEntity, setup_storage_entities
 
 
 async def async_setup_entry(
@@ -28,24 +29,36 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create safely representable catalog number entities."""
+    setup_storage_entities(entry, async_add_entities, _storage_numbers)
     coordinator = entry.runtime_data
-    sources = [
-        source
-        for source in control_entity_sources(coordinator, EntityPlatform.NUMBER)
-        if _has_finite_hard_range(source)
-    ]
-    devices_by_role = {}
-    for source in sources:
-        devices_by_role.setdefault(source.role, set()).add(source.device_id)
-    async_add_entities(
-        FroniusPVNumber(
-            coordinator,
-            entry.entry_id,
-            source,
-            distinguish_device_name=len(devices_by_role[source.role]) > 1,
+    known: set[str] = set()
+
+    @callback
+    def add_new_entities():
+        sources = [
+            source
+            for source in control_entity_sources(coordinator, EntityPlatform.NUMBER)
+            if _has_finite_hard_range(source)
+        ]
+        devices_by_role = {}
+        for source in sources:
+            devices_by_role.setdefault(source.role, set()).add(source.device_id)
+        entities = list(
+            FroniusPVNumber(
+                coordinator,
+                entry.entry_id,
+                source,
+                distinguish_device_name=len(devices_by_role[source.role]) > 1,
+            )
+            for source in sources
         )
-        for source in sources
-    )
+        fresh = [entity for entity in entities if entity.unique_id not in known]
+        known.update(entity.unique_id for entity in fresh)
+        if fresh:
+            async_add_entities(fresh)
+
+    add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
 class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
@@ -86,9 +99,7 @@ class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
                 source.entity.key,
             )
         )
-        self._attr_device_info = _device_info(
-            entry_id, source, distinguish_device_name
-        )
+        self._attr_device_info = _device_info(entry_id, source, distinguish_device_name)
 
     @property
     def available(self) -> bool:
@@ -101,7 +112,22 @@ class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
             ),
             None,
         )
-        return super().available and device is not None and device.available
+        matching = (
+            []
+            if device is None
+            else [
+                model
+                for model in device.decoded_models
+                if model.discovered.model_id == self._source.model_id
+            ]
+        )
+        return (
+            super().available
+            and device is not None
+            and device.available
+            and self._source.model_occurrence < len(matching)
+            and matching[self._source.model_occurrence].available
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -190,3 +216,59 @@ def _entity_category(hint: EntityCategoryHint) -> EntityCategory | None:
         EntityCategoryHint.CONFIG: EntityCategory.CONFIG,
         EntityCategoryHint.DIAGNOSTIC: EntityCategory.DIAGNOSTIC,
     }.get(hint)
+
+
+class StorageNumber(StorageEntity, NumberEntity):
+    """Reserve or an integration-owned watt constraint."""
+
+    _attr_native_step = 1
+
+    def __init__(self, coordinator, entry_id, source, key):
+        super().__init__(coordinator, entry_id, source, key)
+        self._attr_native_unit_of_measurement = "%" if key == "minimum_reserve" else "W"
+
+    @property
+    def native_min_value(self):
+        return 5 if self.key == "minimum_reserve" else 0
+
+    @property
+    def native_max_value(self):
+        if self.key == "minimum_reserve":
+            return 100
+        try:
+            return math.floor(self.control.reference(self._source.device_id))
+        except ServiceValidationError:
+            return 0
+
+    @property
+    def native_value(self):
+        try:
+            if self.key == "minimum_reserve":
+                return self.control.snapshot(self._source.device_id)["MinRsvPct"].value
+            return getattr(self.control.values(self._source.device_id), self.key)
+        except ServiceValidationError:
+            return None
+
+    async def async_set_native_value(self, value):
+        if (
+            not math.isfinite(value)
+            or not self.native_min_value <= value <= self.native_max_value
+        ):
+            raise ServiceValidationError("value is outside the writable range")
+        if self.key == "minimum_reserve":
+            await self.write_register("MinRsvPct", value)
+        else:
+            await self.change(field=self.key, value=value)
+
+
+def _storage_numbers(coordinator, entry_id, source):
+    return [
+        StorageNumber(coordinator, entry_id, source, key)
+        for key in (
+            "minimum_reserve",
+            "minimum_charge_power",
+            "maximum_charge_power",
+            "minimum_discharge_power",
+            "maximum_discharge_power",
+        )
+    ]

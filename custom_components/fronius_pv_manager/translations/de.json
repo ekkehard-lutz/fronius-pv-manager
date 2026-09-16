@@ -48,7 +48,34 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "backup_mode": {
+        "name": "Backup Modus"
+      },
+      "battery_standby": {
+        "name": "Batterie Standby"
+      }
+    },
     "sensor": {
+      "battery_operation_mode": {
+        "name": "Batterie Betriebszustand",
+        "state": {
+          "disabled": "Deaktiviert",
+          "normal": "Normalbetrieb",
+          "service": "Service",
+          "charge boost": "Schnellladung",
+          "nearly depleted": "Nahezu entladen",
+          "suspended": "Ausgesetzt",
+          "calibrate": "Kalibrierung",
+          "grid support": "Netzunterstützung",
+          "deplete recovery": "Erholung nach Tiefentladung",
+          "non operable (voltage)": "Nicht betriebsbereit (Spannung)",
+          "non operable (temperature)": "Nicht betriebsbereit (Temperatur)",
+          "preheating": "Vorheizen",
+          "startup": "Startvorgang"
+        }
+      },
+      "control_status": {"name": "Speichersteuerungsstatus", "state": {"automatic": "Automatisch", "manual_hlc": "Manuell (HLC)", "low_level_override": "Abweichung vom HLC-Ziel", "unknown": "Unbekannt"}},
       "model_103_a": {
         "name": "AC-Strom"
       },
@@ -656,7 +683,13 @@
         "name": "AC-Leistung Phase L3"
       }
     },
+    "switch": {"grid_charging_allowed": {"name": "Netzladung erlaubt"}},
     "number": {
+      "minimum_reserve": {"name": "Mindestreserve"},
+      "minimum_charge_power": {"name": "Minimale Speicher-Ladeleistung"},
+      "maximum_charge_power": {"name": "Maximale Speicher-Ladeleistung"},
+      "minimum_discharge_power": {"name": "Minimale Speicher-Entladeleistung"},
+      "maximum_discharge_power": {"name": "Maximale Speicher-Entladeleistung"},
       "model_123_conn_wintms": {"name": "Register Zeitfenster für die Verbindung"},
       "model_123_conn_rvrttms": {"name": "Register Rückfallzeit für die Verbindung"},
       "model_123_wmaxlimpct": {"name": "Register maximale Ausgangsleistung"},
@@ -676,6 +709,7 @@
       "model_124_inoutwrte_rvrttms": {"name": "Register Rückfallzeit für Laden und Entladen"}
     },
     "select": {
+      "operating_mode": {"name": "Betriebsmodus", "state": {"automatic": "Automatisch", "manual": "Manuell", "remote": "Ferngesteuert"}},
       "model_123_conn": {
         "name": "Register Verbindungssteuerung",
         "state": {"0": "Getrennt", "1": "Verbunden"}

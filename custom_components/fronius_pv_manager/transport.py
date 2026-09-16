@@ -49,6 +49,7 @@ class ModbusTcpEndpointTransport:
             reconnect_delay=0,
         )
         self._connected = False
+        self.generation = 0
 
     def connect(self) -> None:
         """Open the TCP connection or raise an integration-specific error."""
@@ -65,6 +66,7 @@ class ModbusTcpEndpointTransport:
             self._reset_safely()
             raise ModbusConnectionError("failed to connect to Modbus TCP device")
         self._connected = True
+        self.generation += 1
 
     def close(self) -> None:
         """Close the TCP connection once; repeated closure is harmless."""
@@ -76,6 +78,7 @@ class ModbusTcpEndpointTransport:
             raise ModbusTransportError("failed to close Modbus TCP connection") from err
         finally:
             self._connected = False
+            self.generation += 1
 
     def reset(self) -> None:
         """Discard the current endpoint session without retrying a request."""
@@ -87,11 +90,17 @@ class ModbusTcpEndpointTransport:
 
     def _ensure_connected(self) -> None:
         """Connect a new session for a later independent request if needed."""
+        if self._connected and not self._client.connected:
+            # Do not let pymodbus transparently reconnect a prepared request
+            # into a session whose topology has not been validated.
+            self._reset_safely()
+            raise ModbusConnectionError("Modbus session closed; revalidation required")
         if not self._connected:
             self.connect()
 
     def _reset_safely(self) -> None:
         """Reset without hiding the transport failure that triggered recovery."""
+        self.generation += 1
         try:
             self._client.close()
         except Exception:
@@ -177,13 +186,9 @@ class ModbusDeviceTransport:
             address, count, device_id=self.device_id
         )
 
-    def write_holding_registers(
-        self, address: int, values: Sequence[int]
-    ) -> None:
+    def write_holding_registers(self, address: int, values: Sequence[int]) -> None:
         """Write through the shared endpoint with this view's device ID."""
-        self.endpoint.write_holding_registers(
-            address, values, device_id=self.device_id
-        )
+        self.endpoint.write_holding_registers(address, values, device_id=self.device_id)
 
 
 class ModbusTcpTransport:
@@ -217,9 +222,7 @@ class ModbusTcpTransport:
         """Read through the bound device view."""
         return self._view.read_holding_registers(address, count)
 
-    def write_holding_registers(
-        self, address: int, values: Sequence[int]
-    ) -> None:
+    def write_holding_registers(self, address: int, values: Sequence[int]) -> None:
         """Write through the bound device view."""
         self._view.write_holding_registers(address, values)
 

@@ -77,9 +77,7 @@ class RecordingCoordinator(FroniusPVCoordinator):
         policy = policy or WritePolicy(124, "MinRsvPct", 0, 100)
         policies = {(124, "MinRsvPct"): policy}
         super().__init__(hass, FakeEntry({}), {1: transport}, policies)
-        self.discovered_models_by_device = {
-            1: (DiscoveredModel(124, MODEL_BASE, 24),)
-        }
+        self.discovered_models_by_device = {1: (DiscoveredModel(124, MODEL_BASE, 24),)}
         self.refresh_requests = 0
 
     async def async_request_refresh(self) -> None:
@@ -160,9 +158,7 @@ async def test_lookup_and_policy_failures_are_distinct_and_do_not_write() -> Non
         await coordinator.write_runtime.async_write(1, 124, "ChaState", 10)
     for value in (-1, 101):
         with pytest.raises(WriteInvalidValueError):
-            await coordinator.write_runtime.async_write(
-                1, 124, "MinRsvPct", value
-            )
+            await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", value)
     assert transport.write_calls == []
 
 
@@ -214,9 +210,7 @@ async def test_write_transport_failure_is_attempted_once_without_refresh() -> No
 @pytest.mark.asyncio
 async def test_read_back_failure_is_distinct_and_not_retried() -> None:
     """A failed verification read surfaces separately after one write."""
-    coordinator, transport = runtime(
-        transport=RuntimeTransport(read_back_error=True)
-    )
+    coordinator, transport = runtime(transport=RuntimeTransport(read_back_error=True))
 
     with pytest.raises(WriteReadBackError):
         await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", 10)
@@ -238,11 +232,12 @@ async def test_endpoint_readback_failure_resets_without_second_write(
         OSError("readback timeout"),
     ]
     client.write_register.return_value = SimpleNamespace(isError=lambda: False)
-    monkeypatch.setattr(
-        transport_module, "ModbusTcpClient", Mock(return_value=client)
-    )
+    monkeypatch.setattr(transport_module, "ModbusTcpClient", Mock(return_value=client))
     endpoint = ModbusTcpEndpointTransport("inverter.local")
+    endpoint.connect()
     coordinator = RecordingCoordinator(FakeHass(), endpoint.bind(1))
+    # This fixture injects a discovered model; bind it to the established session.
+    coordinator._live_generations[1] = endpoint.generation
 
     with pytest.raises(WriteReadBackError):
         await coordinator.write_runtime.async_write(1, 124, "MinRsvPct", 10)

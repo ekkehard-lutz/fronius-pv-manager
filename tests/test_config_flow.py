@@ -120,7 +120,9 @@ async def test_valid_single_device_creates_normalized_entry(monkeypatch) -> None
 
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "EXAMPLE.local"
-    assert result["data"] == {
+    assert {
+        key: value for key, value in result["data"].items() if key != "topology"
+    } == {
         CONF_HOST: "EXAMPLE.local",
         CONF_PORT: 502,
         CONF_DEVICE_IDS: [1],
@@ -128,9 +130,7 @@ async def test_valid_single_device_creates_normalized_entry(monkeypatch) -> None
     assert flow.unique_id == "example.local:502"
     assert calls == [("EXAMPLE.local", 502, 1)]
     assert transport.close_calls == 1
-    assert [job.__name__ for job in flow.hass.executor_jobs] == [
-        "_validate_endpoint"
-    ]
+    assert [job.__name__ for job in flow.hass.executor_jobs] == ["_validate_endpoint"]
 
 
 @pytest.mark.asyncio
@@ -200,9 +200,7 @@ async def test_device_id_validation_errors_are_returned(device_ids, error) -> No
     """Device-list errors stay localized field errors without network access."""
     flow = _flow()
 
-    result = await flow.async_step_user(
-        _valid_input(**{CONF_DEVICE_IDS: device_ids})
-    )
+    result = await flow.async_step_user(_valid_input(**{CONF_DEVICE_IDS: device_ids}))
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["errors"] == {CONF_DEVICE_IDS: error}
@@ -230,9 +228,7 @@ async def test_connection_failure_closes_every_created_transport(monkeypatch) ->
     }
     _install_transport_factory(monkeypatch, transports)
 
-    result = await _flow().async_step_user(
-        _valid_input(**{CONF_DEVICE_IDS: "1, 200"})
-    )
+    result = await _flow().async_step_user(_valid_input(**{CONF_DEVICE_IDS: "1, 200"}))
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
@@ -267,9 +263,7 @@ async def test_unexpected_validation_failure_is_hidden_and_closes_created_client
 
     monkeypatch.setattr(config_flow_module, "ModbusTcpTransport", factory)
 
-    result = await _flow().async_step_user(
-        _valid_input(**{CONF_DEVICE_IDS: "1, 200"})
-    )
+    result = await _flow().async_step_user(_valid_input(**{CONF_DEVICE_IDS: "1, 200"}))
 
     assert result["errors"] == {"base": "unknown"}
     assert first.close_calls == 1
@@ -323,3 +317,29 @@ async def test_same_serial_on_different_host_aborts_after_validation(
 
     assert raised.value.reason == "already_configured"
     assert transport.close_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_unit", [1, 42])
+async def test_unit_read_timeout_rejects_initial_configuration(
+    monkeypatch, failed_unit
+):
+    """No-response from either configured unit prevents creating an entry."""
+    registers, _ = model_chain((103, 50))
+    transports = {1: FakeTransport(registers), 42: FakeTransport(registers)}
+    transports[failed_unit].fail_reads = True
+    _install_transport_factory(monkeypatch, transports)
+    result = await _flow().async_step_user(_valid_input(**{CONF_DEVICE_IDS: "1,42"}))
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+    assert all(transport.close_calls == 1 for transport in transports.values())
+
+
+@pytest.mark.asyncio
+async def test_invalid_module_structure_has_sunspec_error(monkeypatch):
+    """An incomplete repeating module cannot become persisted entity topology."""
+    registers, _ = model_chain((160, 9))
+    _install_transport_factory(monkeypatch, {1: FakeTransport(registers)})
+    result = await _flow().async_step_user(_valid_input())
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_sunspec"}

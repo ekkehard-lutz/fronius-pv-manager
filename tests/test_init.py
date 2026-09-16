@@ -3,7 +3,6 @@
 import logging
 
 import pytest
-from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.const import Platform
 
 import custom_components.fronius_pv_manager as integration_module
@@ -68,14 +67,29 @@ async def test_successful_setup_stores_initialized_runtime_data(monkeypatch) -> 
     ]
     assert endpoint.connect_calls == 1
     assert hass.config_entries.forwarded == [
-        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
+        (
+            entry,
+            (
+                Platform.SENSOR,
+                Platform.BINARY_SENSOR,
+                Platform.NUMBER,
+                Platform.SELECT,
+                Platform.SWITCH,
+            ),
+        )
     ]
     assert len(entry.runtime_data.write_policies) == 25
     assert {
         coordinate
         for coordinate, policy in entry.runtime_data.write_policies.items()
         if policy.enabled
-    } == {(124, "MinRsvPct"), (124, "ChaGriSet")}
+    } == {
+        (124, "MinRsvPct"),
+        (124, "ChaGriSet"),
+        (124, "StorCtl_Mod"),
+        (124, "InWRte"),
+        (124, "OutWRte"),
+    }
 
 
 @pytest.mark.asyncio
@@ -85,9 +99,7 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
     """Invalid operator YAML fails closed without disabling read-only polling."""
     policy_path = tmp_path / "fronius_pv_manager" / "write_policy.yaml"
     policy_path.parent.mkdir()
-    invalid_content = (
-        "version: 1\nmodels:\n  124:\n    ChaGriSet:\n      values: [2]\n"
-    )
+    invalid_content = "version: 1\nmodels:\n  124:\n    ChaGriSet:\n      values: [2]\n"
     policy_path.write_text(invalid_content, encoding="utf-8")
     registers, _ = model_chain((124, 24))
     transport = FakeTransport(registers)
@@ -110,7 +122,11 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
         hass, entry, lambda items: numbers.extend(items)
     )
     await select_module.async_setup_entry(
-        hass, entry, lambda items: selects.extend(items)
+        hass,
+        entry,
+        lambda items: selects.extend(
+            item for item in items if isinstance(item, select_module.FroniusPVSelect)
+        ),
     )
     await sensor_module.async_setup_entry(
         hass, entry, lambda items: sensors.extend(items)
@@ -124,18 +140,19 @@ async def test_invalid_existing_policy_disables_writes_but_setup_continues(
 
 
 @pytest.mark.asyncio
-async def test_temporary_connection_failure_raises_entry_not_ready(
+async def test_temporary_connection_failure_loads_entry(
     monkeypatch,
 ) -> None:
-    """A temporarily unavailable endpoint fails setup and closes safely."""
+    """A temporarily unavailable endpoint still loads its runtime."""
     registers, _ = model_chain((1, 65))
     transport = FakeTransport(registers, connection_error=True)
     endpoint, _ = install_endpoint_factory(monkeypatch, {7: transport})
 
-    with pytest.raises(ConfigEntryNotReady) as raised:
-        await async_setup_entry(FakeHass(), FakeEntry(entry_data()))
-
-    assert raised.value.__cause__ is not None
+    hass = FakeHass()
+    entry = FakeEntry(entry_data())
+    assert await async_setup_entry(hass, entry)
+    assert hass.config_entries.forwarded
+    assert not entry.runtime_data.data.devices[0].available
     assert endpoint.close_calls == 1
 
 
@@ -158,7 +175,16 @@ async def test_unload_stops_coordinator_closes_transport_and_clears_runtime(
     assert endpoint.close_calls == 1
     assert not hasattr(entry, "runtime_data")
     assert hass.config_entries.unloaded == [
-        (entry, (Platform.SENSOR, Platform.NUMBER, Platform.SELECT))
+        (
+            entry,
+            (
+                Platform.SENSOR,
+                Platform.BINARY_SENSOR,
+                Platform.NUMBER,
+                Platform.SELECT,
+                Platform.SWITCH,
+            ),
+        )
     ]
 
 
@@ -190,7 +216,8 @@ async def test_platform_forwarding_failure_rolls_back_runtime(monkeypatch) -> No
     with pytest.raises(RuntimeError, match="platform setup failed"):
         await async_setup_entry(hass, entry)
 
-    assert endpoint.close_calls == 1
+    assert endpoint.close_calls == 0
+    assert endpoint.connect_calls == 0
     assert not hasattr(entry, "runtime_data")
 
 
@@ -267,14 +294,15 @@ async def test_multi_device_platform_failure_closes_all_transports(
     with pytest.raises(RuntimeError, match="platform setup failed"):
         await async_setup_entry(hass, entry)
 
-    assert endpoint.close_calls == 1
+    assert endpoint.close_calls == 0
+    assert endpoint.connect_calls == 0
 
 
 @pytest.mark.asyncio
-async def test_multi_device_discovery_failure_closes_all_transports(
+async def test_multi_device_discovery_failure_loads_other_devices(
     monkeypatch,
 ) -> None:
-    """Discovery rollback closes contexts created before and after the failure."""
+    """Failed discovery is isolated to its own configured unit."""
     registers, _ = model_chain((103, 50))
     transports = {
         1: FakeTransport(registers),
@@ -283,8 +311,9 @@ async def test_multi_device_discovery_failure_closes_all_transports(
     endpoint, _ = install_endpoint_factory(monkeypatch, transports)
     entry = FakeEntry({CONF_HOST: "192.0.2.30", CONF_DEVICE_IDS: (1, 200)})
 
-    with pytest.raises(ConfigEntryNotReady):
-        await async_setup_entry(FakeHass(), entry)
+    assert await async_setup_entry(FakeHass(), entry)
+    assert entry.runtime_data.data.devices[0].available
+    assert not entry.runtime_data.data.devices[1].available
 
     assert endpoint.close_calls == 1
 

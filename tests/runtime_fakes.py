@@ -1,10 +1,12 @@
 """Shared lightweight Home Assistant runtime test doubles."""
 
+import asyncio
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import CoreState
 
 from custom_components.fronius_pv_manager.sunspec import (
     SUNSPEC_BASE_TRANSPORT_ADDRESS,
@@ -38,6 +40,10 @@ class FakeConfigEntries:
             if entry_domain == domain
         ]
 
+    def async_update_entry(self, entry, *, data):
+        """Persist updated config-entry data."""
+        entry.data = data
+
     async def async_forward_entry_setups(self, entry, platforms) -> None:
         """Record platform forwarding or raise a configured failure."""
         self.forwarded.append((entry, tuple(platforms)))
@@ -67,8 +73,20 @@ class FakeHass:
     def __init__(self, *, config_dir: Path | None = None) -> None:
         self.executor_jobs: list[Callable] = []
         self.is_stopping = False
+        self.data = {}
+        self.state = CoreState.running
         self.config_entries = FakeConfigEntries()
+        self.bus = FakeBus()
         self.config = FakeConfig(config_dir or Path(tempfile.mkdtemp()))
+
+    @property
+    def loop(self):
+        """Return the active test event loop."""
+        return asyncio.get_running_loop()
+
+    def async_create_task(self, target):
+        """Schedule an integration-owned async task."""
+        return asyncio.create_task(target)
 
     async def async_add_executor_job(self, target, *args):
         """Record and execute one submitted synchronous callable."""
@@ -81,6 +99,7 @@ class FakeConfig:
 
     def __init__(self, root: Path) -> None:
         self.root = root
+        self.config_dir = str(root)
 
     def path(self, *parts: str) -> str:
         """Return one path below the synthetic config directory."""
@@ -95,6 +114,7 @@ class FakeEntry:
     ) -> None:
         self.data = data
         self.entry_id = entry_id
+        self.pref_disable_polling = False
         self.state = ConfigEntryState.SETUP_IN_PROGRESS
         self.unload_callbacks: list[Callable] = []
 
@@ -185,6 +205,9 @@ class FakeDeviceTransport:
         self.device_id = device_id
         self.transport = transport
 
+    def write_holding_registers(self, address, words):
+        return self.transport.write_holding_registers(address, words)
+
     def read_holding_registers(self, address: int, count: int) -> tuple[int, ...]:
         """Read one device store and reset the session on transport failure."""
         if not self.endpoint.connected:
@@ -210,10 +233,30 @@ def model_chain(*models: tuple[int, int]) -> tuple[dict[int, int], dict[int, int
         registers[header + 1] = length
         payload_base = header + 2
         payload_bases[model_id] = payload_base
-        registers.update(
-            {payload_base + offset: 0 for offset in range(length)}
-        )
+        registers.update({payload_base + offset: 0 for offset in range(length)})
         header = payload_base + length
     registers[header] = 0xFFFF
     registers[header + 1] = 0
     return registers, payload_bases
+
+
+class FakeBus:
+    """Minimal one-shot event bus for lifecycle tests."""
+
+    def __init__(self):
+        self.listeners = {}
+
+    def async_listen_once(self, event, listener):
+        self.listeners.setdefault(event, []).append(listener)
+
+        def cancel():
+            if listener in self.listeners.get(event, []):
+                self.listeners[event].remove(listener)
+
+        return cancel
+
+    async def fire(self, event):
+        for listener in self.listeners.pop(event, []):
+            result = listener(None)
+            if result is not None:
+                await result

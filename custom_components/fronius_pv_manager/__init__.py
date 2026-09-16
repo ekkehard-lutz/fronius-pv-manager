@@ -1,11 +1,12 @@
 """Home Assistant config-entry lifecycle for Fronius PV Manager."""
 
+import asyncio
 import logging
 from pathlib import Path
 from types import MappingProxyType
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
-from homeassistant.const import Platform
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -17,12 +18,17 @@ from .const import (
     DEFAULT_UNIT_ID,
 )
 from .coordinator import FroniusPVCoordinator
-from .sunspec import SunSpecDiscoveryError
-from .transport import ModbusTcpEndpointTransport, ModbusTransportError
+from .transport import ModbusTcpEndpointTransport
 from .write_policy_loader import WritePolicyLoadError, load_or_create_write_policy
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = (Platform.SENSOR, Platform.NUMBER, Platform.SELECT)
+PLATFORMS = (
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SWITCH,
+)
 
 type FroniusPVConfigEntry = ConfigEntry[FroniusPVCoordinator]
 
@@ -40,10 +46,8 @@ def _configured_device_ids(entry: FroniusPVConfigEntry) -> tuple[int, ...]:
     return device_ids
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: FroniusPVConfigEntry
-) -> bool:
-    """Connect, discover once, and perform the first coordinator refresh."""
+async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -> bool:
+    """Construct runtime even when every configured device is offline."""
     try:
         policy_path, write_policies = await hass.async_add_executor_job(
             load_or_create_write_policy,
@@ -66,49 +70,28 @@ async def async_setup_entry(
         for device_id in _configured_device_ids(entry)
     }
     coordinator = FroniusPVCoordinator(hass, entry, transports, write_policies)
-    try:
-        await coordinator.async_discover()
-        await coordinator.async_config_entry_first_refresh()
-    except (ModbusTransportError, SunSpecDiscoveryError, ConfigEntryNotReady) as err:
-        try:
-            await coordinator.async_close()
-        except ModbusTransportError:
-            _LOGGER.debug(
-                "Failed to close transport after setup failure", exc_info=True
-            )
-        if isinstance(err, ConfigEntryNotReady):
-            raise
-        raise ConfigEntryNotReady("Fronius SunSpec device is unavailable") from err
     entry.runtime_data = coordinator
+    coordinator.stop_unsubscribe = hass.bus.async_listen_once(
+        EVENT_HOMEASSISTANT_STOP, coordinator.async_stop
+    )
+    entry.async_on_unload(coordinator.stop_unsubscribe)
     try:
+        await coordinator.storage_control.async_load()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    except Exception:
-        await coordinator.async_shutdown()
-        try:
-            await coordinator.async_close()
-        except ModbusTransportError:
-            _LOGGER.warning(
-                "Failed to close transport after platform setup failure",
-                exc_info=True,
-            )
+        await coordinator.async_refresh()
+    except Exception, asyncio.CancelledError:
+        await coordinator.async_stop()
         del entry.runtime_data
         raise
     return True
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: FroniusPVConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -> bool:
     """Stop coordinator activity and close its persistent transport safely."""
+    if not hasattr(entry, "runtime_data"):
+        return True
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-
-    coordinator = entry.runtime_data
-    await coordinator.async_shutdown()
-    try:
-        await coordinator.async_close()
-    except ModbusTransportError:
-        _LOGGER.warning("Failed to close Fronius Modbus transport", exc_info=True)
-    if hasattr(entry, "runtime_data"):
-        del entry.runtime_data
+    await entry.runtime_data.async_stop()
+    del entry.runtime_data
     return True

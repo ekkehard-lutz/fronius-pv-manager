@@ -322,7 +322,7 @@ async def test_remote_metadata_not_restored_as_authority_or_blind_write(remote):
     await control.async_acquire_remote_control(1, OWNER, PROFILE)
     document = json.loads(open(control.store.path).read())["data"]
     assert document["modes"]["1"] == "remote"
-    assert set(document) == {"settings", "modes", "last_targets"}
+    assert set(document) == {"settings", "modes", "last_targets", "revision"}
     assert OWNER not in json.dumps(document)
     fresh_coordinator, restored = hardware()
     restored.store = module.Store(fresh_coordinator.hass, 1, control.store.key)

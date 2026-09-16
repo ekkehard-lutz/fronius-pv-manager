@@ -7,19 +7,25 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
+from uuid import uuid4
 
 from homeassistant.core import callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from .codec import encode_register_value
 from .register_maps import MODEL_124
 from .register_reader import read_register
+from .topology import valid_device_key
 from .write_runtime import WriteInvalidValueError, WriteSequenceError
 
 _LOGGER = logging.getLogger(__name__)
 REMOTE_LEASE_SECONDS = 90
+
+
+class StoragePersistenceError(HomeAssistantError):
+    """The requested storage revision could not be read back through HA Store."""
 
 
 @dataclass(frozen=True)
@@ -218,27 +224,105 @@ class StorageControl:
 
     async def async_load(self):
         """Load integration-owned settings before entities are set up."""
-        saved = await self.store.async_load() or {}
-        if "settings" not in saved:
-            # Compatibility with the initial watt-only development state.
-            # Never infer an applied target or selected mode from those values.
-            self.settings = saved
+        try:
+            saved = await self.store.async_load()
+        except (
+            HomeAssistantError,
+            OSError,
+            ValueError,
+            TypeError,
+            KeyError,
+            NotImplementedError,
+        ) as err:
+            _LOGGER.warning("Cannot load storage settings; preserving file: %s", err)
+            self.store.make_read_only()
             return
-        self.settings = saved["settings"]
+        if saved is None:
+            return
+        if not isinstance(saved, dict):
+            _LOGGER.warning("Ignoring malformed storage settings root")
+            return
+        # Accept the original watt-only format without inventing mode/targets.
+        profiles = saved.get("settings", saved)
+        self.settings = self._load_records(profiles, self._valid_profile, "settings")
+        self.modes = self._load_records(
+            saved.get("modes", {}),
+            lambda value: (
+                isinstance(value, str) and value in ("automatic", "manual", "remote")
+            ),
+            "modes",
+        )
         self.modes = {
-            device: "automatic" if mode == "remote" else mode
-            for device, mode in saved.get("modes", {}).items()
-            if mode in ("automatic", "manual", "remote")
+            key: "automatic" if value == "remote" else value
+            for key, value in self.modes.items()
         }
-        self.last_targets = {
-            device: target
-            for device, target in saved.get("last_targets", {}).items()
-            if valid_power_state(target)
-            and (
-                target["StorCtl_Mod"] == 3
-                or target == {"StorCtl_Mod": 0, "InWRte": 100, "OutWRte": 100}
+        self.last_targets = self._load_records(
+            saved.get("last_targets", {}),
+            lambda target: (
+                valid_power_state(target)
+                and (
+                    target["StorCtl_Mod"] == 3
+                    or target == {"StorCtl_Mod": 0, "InWRte": 100, "OutWRte": 100}
+                )
+            ),
+            "last_targets",
+        )
+
+    @staticmethod
+    def _valid_profile(value):
+        if not isinstance(value, dict) or set(value) != set(asdict(PowerSettings())):
+            return False
+        if any(
+            type(item) not in (int, float)
+            or not math.isfinite(item)
+            or item < 0
+            or item != int(item)
+            for item in value.values()
+        ):
+            return False
+        return (
+            value["minimum_charge_power"] <= value["maximum_charge_power"]
+            and value["minimum_discharge_power"] <= value["maximum_discharge_power"]
+            and not (value["minimum_charge_power"] and value["minimum_discharge_power"])
+        )
+
+    @staticmethod
+    def _load_records(records, valid, name):
+        if not isinstance(records, dict):
+            _LOGGER.warning("Ignoring malformed storage %s container", name)
+            return {}
+        clean = {}
+        for device, value in records.items():
+            try:
+                accepted = valid_device_key(device) and valid(value)
+            except ValueError, TypeError, OverflowError:
+                accepted = False
+            if accepted:
+                clean[device] = value
+            else:
+                _LOGGER.warning(
+                    "Ignoring malformed storage %s for device %r", name, device
+                )
+        return clean
+
+    async def _save(self, data):
+        """Save and confirm a fresh revision using only public HA Store APIs.
+
+        This confirms readable persisted content, not an fsync/power-loss guarantee.
+        A separate reader cannot return the writer's pending in-memory payload.
+        A unique revision also rejects stale identical content or deferred writes.
+        """
+        document = {**data, "revision": uuid4().hex}
+        await self.store.async_save(document)
+        reader = Store(self.coordinator.hass, 1, self.store.key, read_only=True)
+        try:
+            observed = await reader.async_load()
+        except (HomeAssistantError, OSError, ValueError, TypeError, KeyError) as err:
+            raise StoragePersistenceError("storage read-back failed") from err
+        if observed != document:
+            raise StoragePersistenceError(
+                "storage revision was not persisted; check Home Assistant storage logs"
             )
-        }
 
     def snapshot(self, device_id):
         """Require one unambiguous, available storage model."""
@@ -300,7 +384,11 @@ class StorageControl:
                 raise ServiceValidationError(
                     "remote mode requires programmatic ownership"
                 )
-            settings = self.values(device_id)
+            if mode == "automatic" and field is None:
+                saved = self.settings.get(str(device_id))
+                settings = PowerSettings(**saved) if saved is not None else None
+            else:
+                settings = self.values(device_id)
             if field is not None:
                 if (
                     type(value) not in (int, float)
@@ -396,7 +484,9 @@ class StorageControl:
                 sequence,
                 **({"before_write": before_write} if before_write else {}),
             )
-        updated = {**self.settings, str(device_id): asdict(settings)}
+        updated = dict(self.settings)
+        if settings is not None:
+            updated[str(device_id)] = asdict(settings)
         modes = {**self.modes, str(device_id): mode}
         targets = dict(self.last_targets)
         if apply:
@@ -411,7 +501,7 @@ class StorageControl:
         for other, snapshot in self._pre_remote.items():
             if other != device_id:
                 persisted = {**persisted, str(other): asdict(snapshot.power_settings)}
-        await self.store.async_save(
+        await self._save(
             {"settings": persisted, "modes": modes, "last_targets": targets}
         )
         self.settings = updated
@@ -434,7 +524,11 @@ class StorageControl:
         )
 
     def _ensure_open(self):
-        if self._closed:
+        if (
+            self._closed
+            or self.coordinator._closing
+            or self.coordinator.hass.is_stopping
+        ):
             raise ServiceValidationError("storage control is unloading")
 
     @staticmethod
@@ -651,12 +745,20 @@ class StorageControl:
 
     def _schedule_watchdog(self, device_id, delay):
         self._cancel_watchdog(device_id)
-        if self._closed:
+        if (
+            self._closed
+            or self.coordinator._closing
+            or self.coordinator.hass.is_stopping
+        ):
             return
 
         @callback
         def expired(_now):
-            if self._closed:
+            if (
+                self._closed
+                or self.coordinator._closing
+                or self.coordinator.hass.is_stopping
+            ):
                 return
             task = self.coordinator.hass.async_create_task(
                 self._async_watchdog(device_id)
@@ -672,6 +774,8 @@ class StorageControl:
         async with self.lock:
             if (
                 self._closed
+                or self.coordinator._closing
+                or self.coordinator.hass.is_stopping
                 or device_id not in self._leases
                 or device_id in self._cleanup
             ):

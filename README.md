@@ -5,9 +5,10 @@ Fronius systems that expose SunSpec over Modbus TCP. It discovers supported
 inverter, storage, and Smart Meter capabilities and organizes their entities as
 separate Home Assistant devices.
 
-Version 0.2.0 is the first stable release. It provides the stable low-level
-communication, discovery, sensor, and guarded register-control foundation.
-The development version adds high-level Home Assistant storage controls.
+The current stable release is v0.3.0, including high-level storage controls
+and the programmatic remote-control interface. PV Manager supplies device-near
+validation and control; tariff optimization, scheduling, and continuous strategy
+belong to a future Energy Manager. It does not continuously reassert targets.
 
 ## For Home Assistant users
 
@@ -63,10 +64,22 @@ as a custom repository:
    **Integration**.
 4. Find **Fronius PV Manager**, install it, and restart Home Assistant.
 
+For manual installation, copy `custom_components/fronius_pv_manager` into
+Home Assistant's `custom_components` directory and restart. After replacing
+integration code through HACS or manually, restart Home Assistant. Reload the
+entry for configuration/policy changes; recovery from an ordinary device outage
+does not require a reload.
+
 ### Configuration
 
 Before configuration, enable SunSpec Modbus TCP on the Fronius equipment using
-the vendor documentation. Then in Home Assistant:
+the vendor documentation and select **integer + scale factor (int + SF)** as
+the SunSpec representation. The supported maps are Common Model 1, three-phase
+inverter 103, nameplate/settings/status/controls 120–123, storage 124,
+multiple-MPPT 160, and three-phase meter 203. Floating-point inverter/meter
+variants are not implemented; selecting them can leave measurements missing.
+
+Then in Home Assistant:
 
 1. Open **Settings → Devices & services**.
 2. Select **Add integration** and choose **Fronius PV Manager**.
@@ -81,6 +94,19 @@ actually present. Entities are associated with the inverter, storage, or meter
 rather than merely with the SunSpec model that supplied the value. Repeated
 Model 160 modules are classified at runtime as MPPT, storage charging, or
 storage discharging data.
+
+### Entity overview
+
+| Group | Contents and defaults |
+| --- | --- |
+| Inverter | Supported power, energy, electrical, status and diagnostic measurements; operational sensors enabled, technical diagnostics generally disabled. |
+| Smart Meter | Supported three-phase meter measurements on its configured unit ID. |
+| Storage | Supported battery measurements and Model 160 storage channels when discovered. |
+| LLC | Model 123/124 register Number/Select controls; disabled by default. |
+| HLC | Seven enabled controls and the read-only Storage control status sensor, described below. |
+| Solar API | Backup mode on inverter; Battery operation mode and Battery standby only on a discovered storage role. Enabled semantic entities; independently unavailable when API data is missing. |
+
+Entity creation follows supported discovered capabilities, not product names.
 
 ### Availability
 
@@ -105,19 +131,38 @@ Polling discovers and persists that structure and adds its entities automaticall
 Subsequent offline starts can construct those entities directly from the cache.
 Optional or repeated instances that are not physically present are not invented.
 
+Cached logical topology constructs offline entities, but never authorizes a
+physical write. Each runtime discovers live addresses before polling registers
+or writing. Connection resets and failed model reads invalidate live authority;
+normal scheduled polls retry discovery. Live validation expires after five
+minutes; the next poll revalidates it. Healthy polls do not each scan the
+model chain. Writes reject expired/unvalidated topology until polling restores
+it. A changed live layout updates the persisted cache without replaying controls.
+
 ### Troubleshooting
 
 - Confirm SunSpec Modbus TCP is enabled and reachable from Home Assistant.
 - Verify the host, port, and Modbus device IDs against the Fronius configuration.
 - Check Home Assistant logs for discovery, timeout, or policy-loading errors.
 - Reload the integration after changing its write policy.
-- If a sensor is missing, verify that the corresponding SunSpec model is
-  actually exposed by the device.
+- If measurements are missing, verify **int + SF** and the supported model IDs.
+- If only Solar entities are unavailable, enable the local Solar API and check
+  HTTP reachability; Modbus availability is independent.
+- For policy rejection, inspect the named register in the installation policy;
+  preserve local restrictions when comparing with the packaged default.
+- Invalid HLC windows need minima no greater than maxima, at most one positive
+  minimum, and values within WChaMax. A narrow window may be impossible after
+  inward quantization; widen it instead of bypassing validation.
+- Remote ownership rejects competing HLC commands. Coordinate with the current
+  owner; expiry or failed cleanup may require an explicit release retry.
+- Debug logs for `custom_components.fronius_pv_manager`, the exact failed phase,
+  configured IDs, firmware, and exposed model IDs help reproduce issues.
+  Do not include credentials or unrelated Home Assistant storage files.
 
 Report reproducible issues through the
 [issue tracker](https://github.com/ekkehard-lutz/fronius-pv-manager/issues).
 
-## Storage controls (v0.3.0-beta.2)
+## Storage controls
 
 Seven enabled-by-default controls are the normal storage interface: minimum
 reserve (5–100%), grid charging allowed, minimum and maximum charge power,
@@ -133,6 +178,8 @@ settings are stored per config entry and Modbus device in Home Assistant's `.sto
 and automatic mode; restarting does not automatically apply them to the device.
 
 Automatic mode writes `StorCtl_Mod = 0`, `InWRte = 100%`, and `OutWRte = 100%`.
+Explicit Automatic does not require WChaMax or create a default watt profile;
+it still requires valid control scale factors, live topology and Write Policy.
 Editing watt settings in automatic mode only validates and saves them. Manual
 mode applies both boundaries (`StorCtl_Mod = 3`) to the signed power interval:
 
@@ -272,8 +319,10 @@ The packaged policy explicitly lists all 25 writable Model 123/124 registers.
 Model 124 `MinRsvPct` (policy range 5–100%), `ChaGriSet`, `StorCtl_Mod`,
 `InWRte`, and `OutWRte` are write-enabled by default. All low-level writable
 entities remain disabled in the Entity Registry. Existing installation policies
-are intentionally not migrated in this beta; during development, delete the
-installation policy manually and reload to recreate the new default.
+are never automatically migrated. Back up your policy, compare changes with
+the packaged default, and merge only permissions/ranges appropriate for your
+installation before reloading. Do not delete local restrictions as routine
+upgrade advice.
 
 ### Storage control and forced charging/discharging
 
@@ -367,7 +416,8 @@ Important guarantees:
 - Polls and writes are serialized across bound device-ID views.
 - Failed requests reset the endpoint so later operations can reconnect.
 - Uncertain writes are not retried automatically.
-- Every accepted entity operation performs at most one physical write.
+- Each individual register operation makes at most one physical write attempt.
+  HLC actions use ordered, read-back-verified multi-register sequences.
 - Readback verification is required before coordinator refresh.
 - Coordinator state is never changed optimistically.
 - Home Assistant exposes no arbitrary raw-register write service.
@@ -388,7 +438,10 @@ python tools/write_register.py --host 192.168.2.11 --device-id 1 --parameter 124
 
 An actual developer write additionally requires `--write` and confirmation.
 These tools resolve reviewed semantic register definitions; they are not generic
-raw Modbus clients.
+raw Modbus clients. The standalone write tool runs outside the integration and
+does **not** load the Home Assistant installation Write Policy. Its explicit
+confirmation and register validation are separate safeguards; the integration
+cannot lock or own its independent Modbus session.
 
 ### Contributing
 
@@ -448,6 +501,23 @@ loaded entry's runtime before making further calls.
   example `"energy_manager.my_entry"`. Keep it consistent throughout a lease.
   It is a coordination identifier, not a secret or authentication credential.
 
+### Public compatibility surface
+
+The intended public interface is `entry.runtime_data.storage_control`,
+`PowerSettings` with the four named fields below, and the eight control/ownership
+methods in the table. Mutable maps, coordinator snapshots, prepared plans,
+lease objects, pre-remote snapshots and `RemoteCleanup` are implementation
+details. Do not import or mutate them in an Energy Manager.
+
+`ServiceValidationError` is the supported validation/ownership rejection
+boundary. At the external control-call boundary, handle other `Exception`
+failures as unsuccessful operations: transport, readback, refresh and storage
+errors may propagate, including errors while capturing the pre-remote snapshot.
+Log and surface the failure rather than assuming an unchanged device or retrying
+blindly. Individual internal exception subclasses and message text are not a
+compatibility promise. Preserve `asyncio.CancelledError`; cancellation can
+arrive after physical I/O completed and is not proof hardware stayed unchanged.
+
 ### Supported methods
 
 Async methods below complete normally with no return value; failures raise.
@@ -463,7 +533,7 @@ Async methods below complete normally with no return value; failures raise.
 | `async_set_remote_grid_charging_allowed(device_id, owner_id, enabled)` | Write boolean grid permission through Write Policy; renew only after success. |
 | `async_release_remote_control(device_id, owner_id)` | Return to neutral Automatic, restore the pre-remote policy/profile, then release ownership. The original owner may retry incomplete or expired cleanup. |
 | `remote_owner(device_id)` | Return the live owner string, or `None` when unowned, expired, or cleanup is pending. This does not initiate I/O. |
-| `async_shutdown()` | Integration lifecycle cleanup: reject new requests, cancel timers, drain pending HLC I/O, and discard runtime leases/snapshots. It does not write a release target. PV Manager calls this on unload; an Energy Manager should release its lease instead of shutting down the shared runtime. |
+| `async_shutdown()` | Integration lifecycle cleanup: reject new requests, cancel timers, drain pending HLC I/O, and discard runtime leases/snapshots. It does not write a release target. PV Manager calls this on unload and HA stop; an Energy Manager should release its lease instead of shutting down the shared runtime. |
 
 ### PowerSettings and watt semantics
 
@@ -625,6 +695,15 @@ persistence fails, the hardware may be fully restored but the live profile
 remains the remote profile until retry succeeds. Neither case claims complete
 restoration.
 
+Home Assistant Store can log a failed write without raising. PV Manager saves
+a unique revision and loads through a separate read-only Store to check that
+the complete document is visible through HA's storage layer. A mismatch or
+read failure is a persistence failure and retains cleanup retry information.
+This is observed persistence, **not a guarantee of fsync or power-loss
+durability**. Deferred shutdown saves are not treated as confirmed merely
+because `async_save()` returned. All storage access uses HA Store; no direct
+writes into HA storage files are made.
+
 Incomplete cleanup retains the snapshot, an owner reservation, and internal
 diagnostics recording the number of verified register steps and the failed
 register or phase. The internal `RemoteCleanup` dataclass and private maps are
@@ -643,7 +722,7 @@ Explicit cleanup failures propagate to the caller; watchdog failures are logged.
 An Energy Manager should surface failures and coordinate explicit recovery
 rather than continuously retrying failed cleanup.
 
-### Restart and unload
+### Restart, unload and Home Assistant stop
 
 Remote ownership, heartbeat timer, pre-remote snapshot, and cleanup diagnostics
 exist only in memory. After Home Assistant restart, none is restored and no
@@ -657,6 +736,12 @@ A new Energy Manager instance must acquire a fresh lease. PV Manager unload
 cancels timers, drains pending HLC operations, and discards runtime ownership
 without adding an unload write. An orderly Energy Manager shutdown should
 explicitly release while the PV Manager entry is still loaded.
+
+HA stop independently rejects new operations, cancels watchdogs, drains
+already-started synchronous client I/O, and closes each endpoint once.
+Shutdown is not remote release: it never writes Automatic or restores policy.
+Repeated unload/stop is safe. Cancellation cannot release the shared I/O lock
+while its executor worker still owns the client.
 
 ### Example Energy Manager flow
 
@@ -743,6 +828,25 @@ existing polling cadence with a three-second timeout and automatic recovery,
 without a reload. Missing or invalid fields affect only their own entities.
 Entities follow cached/discovered inverter topology, including later discovery.
 Battery modes use the configured SunSpec device ID to select the inverter entry.
+This ID equality is a current routing assumption, covered by synthetic tests;
+the repository does not establish it for arbitrary nondefault hardware IDs.
+Verify the Solar API inverter keys on such installations before relying on the
+battery semantic states.
 Known mode values have English/German display translations. Unknown future
 `Battery_Mode` strings are intentionally shown unchanged until explicit
 translations are added. Empty or whitespace-only mode strings are unavailable.
+
+## Fronius reserve and backup limitations
+
+Requested power windows are constraints, not guaranteed physical battery power.
+Fronius and BMS safety/service behavior remains authoritative. Review reserve
+capacity in the Fronius web interface separately from Modbus `MinRsvPct`;
+internal reserve constraints can take precedence and no universal reserve
+percentage is recommended here. Grid permission governs regular controlled
+charging, not every safety/service charge.
+
+Smart Meter reachability during Full Backup depends on wiring and installation.
+An unavailable meter affects its own entities and recovers through polling.
+The repository does not record enough firmware/wiring-specific Full Backup
+evidence to generalize this behavior or claim a guaranteed backup reserve.
+The GEN24 remote-control verification above is not a Full Backup certification.

@@ -30,6 +30,10 @@ def _construct_unique_mapping(loader, node, deep=False):
     mapping = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
+        if type(key) not in (str, int):
+            raise WritePolicyLoadError(
+                "mapping keys must be strings or integer model IDs"
+            )
         if key in mapping:
             raise WritePolicyLoadError(f"duplicate YAML key: {key!r}")
         mapping[key] = loader.construct_object(value_node, deep=deep)
@@ -76,14 +80,12 @@ def load_write_policy_text(
     return MappingProxyType(policies)
 
 
-def load_or_create_write_policy(config_directory: Path) -> tuple[
-    Path, Mapping[tuple[int, str], WritePolicy]
-]:
+def load_or_create_write_policy(
+    config_directory: Path,
+) -> tuple[Path, Mapping[tuple[int, str], WritePolicy]]:
     """Create the installation file once if absent, then load that exact file."""
     policy_path = (
-        config_directory
-        / INSTALLATION_POLICY_DIRECTORY
-        / INSTALLATION_POLICY_FILENAME
+        config_directory / INSTALLATION_POLICY_DIRECTORY / INSTALLATION_POLICY_FILENAME
     )
     policy_path.parent.mkdir(parents=True, exist_ok=True)
     if not policy_path.exists():

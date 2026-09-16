@@ -5,74 +5,49 @@ releases will use semantic versioning.
 
 ## [Unreleased]
 
-### Development verification
-
-- Real GEN24 hardware testing reported successful remote acquisition, HLC
-  exclusivity, complete remote power-window updates, heartbeat lease renewal,
-  remote Minimum Reserve and Grid Charging Allowed writes, and explicit release.
-- Explicit release and watchdog expiry both returned to Automatic and restored
-  pre-remote reserve, grid permission, and the saved user power profile on the
-  tested GEN24 setup. These results do not establish behavior for all hardware,
-  firmware, battery configurations, or operating conditions.
-- Removed the temporary Home Assistant hardware-test harness after verification.
-  The supported Energy Manager interface is the programmatic storage-control API,
-  now documented in the README Developer API section.
-
 ### Fixed
 
-- Positive HLC minimum charge/discharge commands clear the opposite minimum
-  in one semantic transition, allowing forced-direction changes with one action.
+- Drain executor workers before releasing shared Modbus ownership on cancellation,
+  including polling, discovery, writes, and close; add idempotent HA stop cleanup
+  without automatic release writes.
+- Separate cached entity topology from live addressing; rediscover after session
+  invalidation/failure and periodically, rejecting unvalidated write addresses.
+- Confirm saved revisions through HA Store readback and retain remote cleanup
+  retry state when a suppressed storage failure prevents persistence.
+- Validate malformed persisted topology/control records and fail closed on
+  unsupported YAML mapping keys without disabling readable setup.
+- Allow explicit neutral Automatic without WChaMax or a default watt profile.
+- Gate supplemental battery entities on discovered storage capability.
 
-- v0.3.0-beta.2: quantize HLC watt constraints at the Model 124 rate resolution,
-  rounding maxima down and minima up while retaining semantic watt settings.
-- Keep HLC power UI steps fixed at 1 W, independent of hardware resolution;
-  adjacent semantic settings may share a quantized register target.
-- Reject windows that become impossible after quantization before any Modbus
-  write.
-- Clarify that disabled low-level entities are a UI default, not a separate
-  authorization boundary; both HLC and LLC remain subject to Write Policy.
+### Documentation and tests
+
+- Document int + SF model scope, stable user setup, policy preservation, public
+  Energy Manager API boundaries, persistence limits, and shutdown semantics.
+- Add real executor cancellation/close races, real Store write-failure tests,
+  topology relocation, lifecycle and malformed-data regressions.
+
+## [v0.3.0] - 2026-09-16
 
 ### Added
 
-- Optional local Solar API V1 supplemental runtime and three High-Level state
-  entities: Battery operation mode, Backup mode, and Battery standby.
-- Independent field availability and automatic recovery without entry reload;
-  forward-compatible raw Battery_Mode strings with English/German translations.
+- Seven high-level storage controls, status observation, persistent semantic
+  watt profiles, and verified policy-bound multi-register transitions.
+- Inward watt quantization, fixed 1 W UI steps, coherent minimum-direction changes,
+  and rejection of windows that cannot be represented.
+- Programmatic complete-window and remote ownership APIs with heartbeat leases,
+  runtime-only pre-remote snapshots, neutral-first release/expiry, policy/profile
+  restoration, and explicit retry after incomplete cleanup.
+- Optional read-only local Solar API Battery operation mode, Backup mode and
+  Battery standby entities with independent availability and automatic recovery.
+- Energy Manager API documentation and reported GEN24 remote-control verification.
+  The temporary hardware-test harness was removed before the stable release.
 
-- Runtime-only pre-remote reserve/grid/profile snapshot for temporary takeover.
-  Orderly release and watchdog expiry restore policy and the saved user profile
-  while always returning power control to Automatic, never previous manual mode.
-- Preserve the user power profile in persistence during remote operation.
-  Snapshots/leases are never restored at restart and cause no startup writes.
-- Cleanup prioritizes verified Automatic even if policy restoration fails;
-  retains explicit partial-progress diagnostics and the snapshot for an explicit
-  retry, with no rollback or unattended retry loop.
+## [v0.2.1] - 2026-09-10
 
-- Extend live remote ownership to minimum reserve and grid-charging HLC writes;
-  owner-checked APIs use Write Policy and renew the lease only after success.
+### Fixed
 
-- Complete semantic PowerSettings update API sharing the validated, quantized,
-  locked and read-back-verified HLC write path.
-- Programmatic remote mode with per-device ownership, a 90-second heartbeat
-  lease, automatic release/expiry fallback, and manual HLC power UI protection.
-- Watchdog unload cleanup and read-first restart handling: saved remote mode
-  becomes semantic automatic without restoring ownership or writing on startup.
-
-- Storage-control status and explicit HLC/LLC coexistence: last explicit write
-  wins, with persistent HLC mode/target and no automatic override enforcement.
-- High-level Model 124 storage controls with persistent watt constraints,
-  English/German names, and prevalidated, serialized, verified write sequences.
-- Default write approval for storage mode/rate registers and a 5–100% reserve
-  policy range, without migrating installation policies.
-
-- Initial Fronius PV Manager project structure.
-- MIT license and Home Assistant/HACS metadata.
-- English and German localization foundation.
-- Immutable SunSpec register and model core data types.
-- Capability-based device metadata.
-- Validation for register definitions, model layouts, and discovered models.
-- Unit tests for the core model.
-- CI-ready validation with Ruff and pytest.
+- Allow existing entries to start offline using persisted logical topology;
+  retain entities, recover per device, and add later-discovered capabilities.
 
 ## [v0.2.0] - 2026-09-02
 

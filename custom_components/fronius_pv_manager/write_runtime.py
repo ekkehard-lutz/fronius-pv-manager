@@ -109,14 +109,9 @@ class FroniusPVWriteRuntime:
         except WritePolicyError as err:
             raise WriteInvalidValueError(str(err)) from err
 
-        async with self._coordinator.io_lock:
-            result = await self._coordinator.hass.async_add_executor_job(
-                self._write_once,
-                transport,
-                discovered,
-                policy,
-                value,
-            )
+        result = await self._coordinator.async_run_io(
+            self._write_once, device_id, transport, policy, value
+        )
         if not result.verified:
             raise WriteVerificationMismatchError(
                 "write read-back does not match the requested value"
@@ -134,26 +129,10 @@ class FroniusPVWriteRuntime:
         No rollback or Modbus atomicity is promised. Cancellation waits for the
         executor to finish before releasing the I/O lock.
         """
-        import asyncio
-
         requests = tuple(requests)
-        async with self._coordinator.io_lock:
-            job = asyncio.ensure_future(
-                self._coordinator.hass.async_add_executor_job(
-                    self._sequence_once,
-                    device_id,
-                    requests,
-                    safety_prefix,
-                    before_write,
-                )
-            )
-            try:
-                results = await asyncio.shield(job)
-            except asyncio.CancelledError:
-                try:
-                    await job
-                finally:
-                    raise
+        results = await self._coordinator.async_run_io(
+            self._sequence_once, device_id, requests, safety_prefix, before_write
+        )
         try:
             await self._coordinator.async_request_refresh()
         except Exception as err:
@@ -170,7 +149,7 @@ class FroniusPVWriteRuntime:
         transport = self._coordinator.transports.get(device_id)
         if transport is None:
             raise WriteDeviceNotConfiguredError(f"device {device_id} is not configured")
-        discovered = self._coordinator.discovered_models_by_device.get(device_id, ())
+        discovered = self._coordinator.live_models(device_id)
         plans = []
         for index, (model_id, name, value) in enumerate(requests):
             try:
@@ -235,9 +214,11 @@ class FroniusPVWriteRuntime:
             ) from err
         return policy, plan
 
-    @staticmethod
-    def _write_once(transport, discovered, policy, value) -> RegisterWriteResult:
-        """Prepare immediately, perform one write, and classify failures."""
+    def _write_once(self, device_id, transport, policy, value) -> RegisterWriteResult:
+        """Resolve live addressing inside the I/O lock, then write and verify."""
+        discovered = self._coordinator.live_models(device_id)
+        if not discovered:
+            raise WriteModelNotDiscoveredError("live topology requires validation")
         try:
             prepared = prepare_register_write(
                 transport,

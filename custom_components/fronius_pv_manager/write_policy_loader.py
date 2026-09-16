@@ -52,7 +52,7 @@ def load_write_policy_text(
     """Parse and completely validate one YAML policy snapshot."""
     try:
         document = yaml.load(content, Loader=_UniqueKeySafeLoader)
-    except (yaml.YAMLError, WritePolicyLoadError) as err:
+    except (yaml.YAMLError, ValueError, OverflowError) as err:
         raise WritePolicyLoadError(f"invalid YAML: {err}") from err
     root = _mapping(document, "policy root")
     _exact_keys(root, {"version", "models"}, "policy root")
@@ -174,7 +174,13 @@ def _optional_number(settings: dict, key: str) -> int | float | None:
     if key not in settings:
         return None
     value = settings[key]
-    if type(value) not in {int, float} or not math.isfinite(value):
+    if type(value) not in {int, float}:
+        raise WritePolicyLoadError(f"{key} must be a finite number")
+    try:
+        finite = math.isfinite(value)
+    except OverflowError as err:
+        raise WritePolicyLoadError(f"{key} numeric value is too large") from err
+    if not finite:
         raise WritePolicyLoadError(f"{key} must be a finite number")
     return value
 

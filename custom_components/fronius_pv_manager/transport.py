@@ -66,6 +66,7 @@ class ModbusTcpEndpointTransport:
             self._reset_safely()
             raise ModbusConnectionError("failed to connect to Modbus TCP device")
         self._connected = True
+        self.generation += 1
 
     def close(self) -> None:
         """Close the TCP connection once; repeated closure is harmless."""
@@ -89,6 +90,11 @@ class ModbusTcpEndpointTransport:
 
     def _ensure_connected(self) -> None:
         """Connect a new session for a later independent request if needed."""
+        if self._connected and not self._client.connected:
+            # Do not let pymodbus transparently reconnect a prepared request
+            # into a session whose topology has not been validated.
+            self._reset_safely()
+            raise ModbusConnectionError("Modbus session closed; revalidation required")
         if not self._connected:
             self.connect()
 

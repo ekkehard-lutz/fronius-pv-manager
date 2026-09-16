@@ -138,6 +138,10 @@ normal scheduled polls retry discovery. Live validation expires after five
 minutes; the next poll revalidates it. Healthy polls do not each scan the
 model chain. Writes reject expired/unvalidated topology until polling restores
 it. A changed live layout updates the persisted cache without replaying controls.
+Prepared writes cannot continue after their live addressing authority changes,
+including a connection reset during cleanup preparation. Cleanup retains its
+retry state; after discovery recovers, explicitly retry release. It does not
+rebuild or replay the failed sequence automatically.
 
 ### Troubleshooting
 

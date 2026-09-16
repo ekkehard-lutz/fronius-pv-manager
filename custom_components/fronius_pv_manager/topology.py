@@ -106,6 +106,8 @@ def _validate_record(record):
     from .register_maps import get_model_definition
 
     model = record["model"]
+    if not isinstance(model, dict):
+        raise ValueError("model coordinates must be a mapping")
     if set(model) != {"model_id", "base_address", "length"} or any(
         type(value) is not int for value in model.values()
     ):

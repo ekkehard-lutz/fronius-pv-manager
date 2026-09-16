@@ -38,6 +38,45 @@ class WriteModelNotDiscoveredError(FroniusPVWriteError):
     """Raised when a requested model is absent from current topology."""
 
 
+class WriteAuthorityChangedError(WriteModelNotDiscoveredError):
+    """Prepared addresses lost their live session/discovery authority."""
+
+
+class _AuthorityBoundTransport:
+    """Guard every preparation, write and readback against one live authority.
+
+    This view lives only inside the coordinator I/O lock. It never reconnects,
+    rediscovers, rebuilds a plan or retries an operation itself.
+    """
+
+    def __init__(self, coordinator, device_id, transport):
+        self.coordinator = coordinator
+        self.device_id = device_id
+        self.transport = transport
+        self.authority = coordinator.write_authority(device_id)
+        if self.authority is None:
+            raise WriteModelNotDiscoveredError("live topology requires validation")
+        self.models = self.authority[2]
+
+    def check(self):
+        if self.coordinator.write_authority(self.device_id) != self.authority:
+            raise WriteAuthorityChangedError(
+                "prepared write authority changed; "
+                "rediscovery and explicit retry required"
+            )
+
+    def read_holding_registers(self, address, count):
+        self.check()
+        result = self.transport.read_holding_registers(address, count)
+        self.check()
+        return result
+
+    def write_holding_registers(self, address, words):
+        self.check()
+        self.transport.write_holding_registers(address, words)
+        self.check()
+
+
 class WriteInvalidValueError(FroniusPVWriteError):
     """Raised when semantic policy or encoder validation rejects a value."""
 
@@ -149,21 +188,32 @@ class FroniusPVWriteRuntime:
         transport = self._coordinator.transports.get(device_id)
         if transport is None:
             raise WriteDeviceNotConfiguredError(f"device {device_id} is not configured")
-        discovered = self._coordinator.live_models(device_id)
+        transport = _AuthorityBoundTransport(self._coordinator, device_id, transport)
+        discovered = transport.models
         plans = []
         for index, (model_id, name, value) in enumerate(requests):
             try:
-                plans.append(
-                    self._prepare_sequence_step(
-                        transport, discovered, model_id, name, value
+                transport.check()
+                try:
+                    plans.append(
+                        self._prepare_sequence_step(
+                            transport, discovered, model_id, name, value
+                        )
                     )
-                )
-            except FroniusPVWriteError as err:
-                if not safety_prefix or index < safety_prefix:
-                    raise
-                # Preflight every restoration step, but do not let a policy
-                # restore failure prevent the verified automatic safety prefix.
-                plans.append(err)
+                except FroniusPVWriteError as err:
+                    # A transport failure may invalidate the already prepared
+                    # neutral prefix. Only defer errors with authority intact.
+                    transport.check()
+                    if not safety_prefix or index < safety_prefix:
+                        raise
+                    plans.append(err)
+                transport.check()
+            except WriteAuthorityChangedError as err:
+                raise WriteSequenceError(
+                    "write authority invalidated during preflight; no writes attempted",
+                    (),
+                    name,
+                ) from err
         if before_write is not None:
             before_write(transport, discovered)
         results = []
@@ -216,9 +266,8 @@ class FroniusPVWriteRuntime:
 
     def _write_once(self, device_id, transport, policy, value) -> RegisterWriteResult:
         """Resolve live addressing inside the I/O lock, then write and verify."""
-        discovered = self._coordinator.live_models(device_id)
-        if not discovered:
-            raise WriteModelNotDiscoveredError("live topology requires validation")
+        transport = _AuthorityBoundTransport(self._coordinator, device_id, transport)
+        discovered = transport.models
         try:
             prepared = prepare_register_write(
                 transport,

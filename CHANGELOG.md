@@ -7,6 +7,10 @@ releases will use semantic versioning.
 
 ### Fixed
 
+- Bind prepared integration writes to their live session/discovery authority;
+  abort stale cleanup plans after preflight resets, retaining explicit retry state.
+- Reject malformed topology model containers and normalize invalid YAML dates
+  and oversized policy numbers without disabling readable integration setup.
 - Drain executor workers before releasing shared Modbus ownership on cancellation,
   including polling, discovery, writes, and close; add idempotent HA stop cleanup
   without automatic release writes.

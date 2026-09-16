@@ -100,6 +100,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         # Persisted structure is for entity construction, never write authority.
         self.topology = validate_topology(entry.data.get(CONF_TOPOLOGY, {}))
         self._live_generations = {}
+        self._discovery_revisions = {}
         self._discovery_deadlines = {}
         self._closing = False
         self._closed = False
@@ -183,7 +184,21 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
             return ()
         return self.discovered_models_by_device.get(device_id, ())
 
+    def write_authority(self, device_id):
+        """Identify the live session and discovery that authorize physical plans."""
+        models = self.live_models(device_id)
+        if not models:
+            return None
+        return (
+            self._generation(device_id),
+            self._discovery_revisions.get(device_id, 0),
+            models,
+        )
+
     def _discover_device(self, device_id, transport):
+        self._discovery_revisions[device_id] = (
+            self._discovery_revisions.get(device_id, 0) + 1
+        )
         self.discovered_models_by_device.pop(device_id, None)
         owner = getattr(transport, "endpoint", transport)
         owner.connect()

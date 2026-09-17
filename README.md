@@ -820,7 +820,7 @@ Three enabled, read-only high-level sensors use existing decoded Modbus data:
 
 | Sensor | Physical device | Source |
 | --- | --- | --- |
-| PV Power | Inverter | Sum of all currently available Model 160 MPPT `DCW` values. |
+| PV Power | Inverter | Sum of available MPPT `DCW` values within one unambiguous Model 160. |
 | Grid Import Power | Meter | `max(W, 0)` from Model 203 signed AC active power. |
 | Grid Export Power | Meter | `max(-W, 0)` from Model 203 signed AC active power. |
 
@@ -828,13 +828,26 @@ PV Power excludes storage charge/discharge and unknown modules using the existin
 Model 160 classification. It never uses aggregate inverter DC power, which can
 include battery power on GEN24. Any number of discovered MPPTs is supported;
 missing MPPT values are omitted, and no available MPPT values means unavailable.
-A valid zero remains zero. Failed device/model polls do not supply stale values.
+A valid zero remains zero. A present but malformed or negative MPPT power value
+makes PV Power unavailable rather than contributing to a partial total.
+Failed device/model polls do not supply stale values.
 
 Grid directions follow the [Fronius meter convention](https://manuals.fronius.com/html/4204102649/en-US.html)
 for a meter at the grid connection: positive means import, negative means export.
 Select the grid-connection meter for Energy Dashboard use; a load or generator
 meter measures a different flow. Missing meter power makes both sensors
 unavailable. Both directions are non-negative and cannot be positive together.
+
+PV Power requires one unambiguous Model 160 and grid power requires one
+unambiguous Model 203 on the selected device. Duplicate occurrences, including
+those retained in persisted/offline topology, make the affected sensor unavailable.
+Live decoded source selection must agree with current and cached discovery.
+
+All nine semantic power and percentage sensors reject booleans, nonnumeric values,
+unsupported numeric types, NaN, infinity, and engineering values too large for safe
+arithmetic.
+Overflow or non-finite calculation results produce unavailable values, not
+exceptions or clamped percentages. This adds no operational power threshold.
 
 PV Power plus Grid Import/Export Power are suitable for Home Assistant Energy
 Dashboard **power-flow configuration**. All use W, device class `power`, and

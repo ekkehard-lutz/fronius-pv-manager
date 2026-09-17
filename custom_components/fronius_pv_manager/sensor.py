@@ -3,6 +3,7 @@
 import math
 import re
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -494,6 +495,48 @@ class BatteryOperationMode(SolarEntity, SensorEntity):
         return self.value
 
 
+def _semantic_number(value):
+    """Accept finite engineering values without coercing types or losing precision."""
+    if type(value) not in (int, float):
+        return None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:
+        # Integer + scale-factor decoding can exceed float representability.
+        return None
+
+
+def _safe_semantic_calculation(calculate):
+    """Reject arithmetic overflow and non-finite results at the sensor boundary."""
+
+    @wraps(calculate)
+    def checked(self):
+        try:
+            return _semantic_number(calculate(self))
+        except OverflowError:
+            return None
+
+    return checked
+
+
+def _power_model(coordinator, device_id, model_id):
+    """Select one live model, agreeing with current and cached discovery."""
+    if not coordinator.last_update_success:
+        return None
+    live = [d for d in coordinator.data.devices if d.device_id == device_id]
+    topology = [d for d in coordinator.entity_data.devices if d.device_id == device_id]
+    if len(live) != 1 or not live[0].available or len(topology) != 1:
+        return None
+    matches = [s for s in live[0].decoded_models if s.discovered.model_id == model_id]
+    if len(matches) != 1 or not matches[0].available:
+        return None
+    for device in (live[0], topology[0]):
+        candidates = [m for m in device.discovered_models if m.model_id == model_id]
+        if candidates != [matches[0].discovered]:
+            return None
+    return matches[0].decoded
+
+
 class SolarPowerSensor(SolarEntity, SensorEntity):
     """Read semantic power from current Modbus data, independent of Solar API."""
 
@@ -502,41 +545,35 @@ class SolarPowerSensor(SolarEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
+    @_safe_semantic_calculation
     def value(self):
-        if not self.coordinator.last_update_success:
-            return None
-        device = next(
-            (d for d in self.coordinator.data.devices if d.device_id == self.device_id),
-            None,
+        model = _power_model(
+            self.coordinator, self.device_id, 160 if self.key == "pv_power" else 203
         )
-        if device is None or not device.available:
+        if model is None:
             return None
         if self.key == "pv_power":
             powers = []
-            for snapshot in device.decoded_models:
-                if snapshot.discovered.model_id != 160 or not snapshot.available:
-                    continue
-                for module in snapshot.decoded.repeating.get("module", ()):
-                    if (
-                        classify_model_160_module(module).semantic_kind
-                        is Model160ModuleKind.MPPT
-                    ):
-                        power = module.values.get("DCW")
-                        if power is not None and power.value is not None:
-                            powers.append(power.value)
+            for module in model.repeating.get("module", ()):
+                if (
+                    classify_model_160_module(module).semantic_kind
+                    is Model160ModuleKind.MPPT
+                ):
+                    register = module.values.get("DCW")
+                    if register is None or register.value is None:
+                        continue  # Preserve intentional partial MPPT summation.
+                    power = _semantic_number(register.value)
+                    if power is None or power < 0:
+                        return None
+                    powers.append(power)
             return sum(powers) if powers else None
-        meter = next(
-            (s for s in device.decoded_models if s.discovered.model_id == 203),
-            None,
-        )
-        if meter is None or not meter.available:
-            return None
-        power = meter.decoded.fixed.get("W")
-        if power is None or power.value is None:
+        register = model.fixed.get("W")
+        power = _semantic_number(register.value if register is not None else None)
+        if power is None:
             return None
         # Fronius Model 203 at the grid connection: positive import, negative export.
         # https://manuals.fronius.com/html/4204102649/en-US.html (Meter Model)
-        return _grid_direction_power(power.value, self.key)
+        return _grid_direction_power(power, self.key)
 
     @property
     def native_value(self):
@@ -550,19 +587,11 @@ def _grid_direction_power(power, key):
 
 def _active_power(coordinator, device_id, model_id):
     """Read one finite active-power value without using cached offline readings."""
-    if not coordinator.last_update_success:
+    model = _power_model(coordinator, device_id, model_id)
+    if model is None:
         return None
-    device = next(
-        (d for d in coordinator.data.devices if d.device_id == device_id), None
-    )
-    if device is None or not device.available:
-        return None
-    models = [s for s in device.decoded_models if s.discovered.model_id == model_id]
-    if len(models) != 1 or not models[0].available:
-        return None
-    power = models[0].decoded.fixed.get("W")
-    value = power.value if power is not None else None
-    return value if type(value) in (int, float) and math.isfinite(value) else None
+    power = model.fixed.get("W")
+    return _semantic_number(power.value if power is not None else None)
 
 
 class SolarConsumptionSensor(SolarEntity, SensorEntity):
@@ -577,6 +606,7 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
             self._attr_device_class = SensorDeviceClass.POWER
 
     @property
+    @_safe_semantic_calculation
     def value(self):
         # Topology, rather than just online devices, prevents silently switching
         # sources when a meter or inverter goes offline. No site mapping exists.
@@ -599,9 +629,10 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
             return None
         imported = _grid_direction_power(meter_power, "grid_import_power")
         exported = _grid_direction_power(meter_power, "grid_export_power")
-        consumption = max(0, ac_power + imported - exported)
-        if not math.isfinite(consumption):
+        residual = _semantic_number(ac_power + imported - exported)
+        if residual is None:
             return None
+        consumption = max(0, residual)
         if self.key == "consumption_power":
             return consumption
         if self.key == "autarky":
@@ -612,6 +643,8 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
             if ac_power <= 0:
                 return 100.0 if exported == 0 else None
             ratio = 100 * consumption / ac_power
+        if _semantic_number(ratio) is None:
+            return None
         return min(100, max(0, ratio))
 
     @property
@@ -622,8 +655,8 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
 def _efficiency_number(values, key):
     """Read a finite, nonnegative decoded engineering value."""
     register = values.get(key)
-    value = register.value if register is not None else None
-    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+    value = _semantic_number(register.value if register is not None else None)
+    if value is None or value < 0:
         return None
     return value
 
@@ -635,6 +668,7 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
+    @_safe_semantic_calculation
     def value(self):
         if not self.coordinator.last_update_success:
             return None
@@ -683,8 +717,8 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
                 return None
             if rectifier:
                 register = models[103].fixed.get("W")
-                ac = register.value if register is not None else None
-                if type(ac) not in (int, float) or not math.isfinite(ac) or ac >= 0:
+                ac = _semantic_number(register.value if register is not None else None)
+                if ac is None or ac >= 0:
                     return None
             else:
                 ac = _efficiency_number(models[103].fixed, "W")
@@ -697,7 +731,7 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
             denominator = sum(pv) + discharging - charging
             numerator = ac
             if rectifier:
-                if denominator >= 0 or not math.isfinite(denominator):
+                if _semantic_number(denominator) is None or denominator >= 0:
                     return None
                 numerator, denominator = -denominator, -ac
         else:
@@ -708,10 +742,14 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
             # DCWH and WHRtg are already scaled Wh; ChaState is percent.
             numerator = discharging + capacity * (soc / 100)
             denominator = charging
-        if denominator <= 0 or not math.isfinite(denominator):
+        if (
+            _semantic_number(numerator) is None
+            or _semantic_number(denominator) is None
+            or denominator <= 0
+        ):
             return None
         result = 100 * (numerator / denominator)
-        return result if math.isfinite(result) else None
+        return result
 
     @property
     def native_value(self):

@@ -103,6 +103,8 @@ def change(snapshots, model_id, field, value, module_index=None):
         (500, 500, 0, 0, None),
         (500, 1000, 0, 0, None),
         (500, 0, 0, -10, None),
+        (507, 1000, 0, -538, None),
+        (0, 1000, 0, -1001, None),
         (500, 0, 0, 550, 110),
         (500, 0, 0, 0, 0),
     ],

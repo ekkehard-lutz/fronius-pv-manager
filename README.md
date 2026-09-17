@@ -852,13 +852,19 @@ Three additional read-only semantic sensors belong to the existing inverter:
 | --- | --- | --- |
 | Consumption Power / Verbrauchsleistung | `max(0, inverter AC power + grid import power - grid export power)` | W |
 | Autarky / Autarkiegrad | `100 * (1 - grid import power / consumption power)`, clamped to 0–100 | % |
-| Self-Consumption / Eigenverbrauch | `100 * consumption power / inverter AC power`, clamped to 0–100 | % |
+| Self-Consumption / Eigenverbrauch | For positive inverter AC power: `100 * consumption power / inverter AC power`, clamped to 0–100 | % |
 
 These are instantaneous measurements (`state_class: measurement`), not ratios of
 accumulated energy. Consumption Power has device class `power`; the percentage
 sensors have no device class. Negative consumption residuals caused by measurement
 timing are clamped to zero. Autarky is unavailable at zero consumption.
-Self-Consumption is unavailable when inverter AC output is zero or negative.
+When inverter AC power is zero or negative and grid export is zero,
+Self-Consumption is 100.0%, including forced grid charging with or without PV
+production, as observed on GEN24 against native Fronius SolarNet readings.
+With nonpositive inverter AC power and positive grid export, Self-Consumption
+remains unavailable because this combination has not been empirically validated.
+This edge case does not change Inverter Efficiency, which represents DC-to-AC
+conversion only and remains unavailable during net AC-to-DC operation.
 Any missing, invalid, or offline required source makes the derived value
 unavailable; missing measurements are never replaced with zero.
 

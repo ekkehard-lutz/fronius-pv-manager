@@ -63,10 +63,15 @@ async def site(ac=1000, grid=-400):
         (4505, 6329, (10834, 100 * 4505 / 10834, 100)),
         (991.4, -679.1, (312.3, 100, 100 * 312.3 / 991.4)),
         (100, -200, (0, None, 0)),
-        (0, 1000, (1000, 0, None)),
-        (-100, 1000, (900, 0, None)),
-        (0, 0, (0, None, None)),
-        (-100, 0, (0, None, None)),
+        (0, 1000, (1000, 0, 100)),
+        (-100, 1000, (900, 0, 100)),
+        (0, 0, (0, None, 100)),
+        (-100, 0, (0, None, 100)),
+        (-100, -200, (0, None, None)),
+        (0, -200, (0, None, None)),
+        (1552.8, -1232.1, (320.7, 100, 100 * 320.7 / 1552.8)),
+        (-538.3, 889.8, (351.5, 0, 100)),
+        (-1001.1, 1001.1, (0, None, 100)),
     ],
 )
 async def test_defined_formulas(ac, grid, expected):
@@ -96,25 +101,27 @@ async def test_defined_formulas(ac, grid, expected):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ac", [1000, 0, -538.3])
 @pytest.mark.parametrize("source", [1, 200])
 @pytest.mark.parametrize(
     "invalid", [None, float("nan"), float("inf"), -float("inf"), "bad", True]
 )
-async def test_invalid_required_power(source, invalid):
+async def test_invalid_required_power(source, invalid, ac):
     _, _, derived = await site(
-        invalid if source == 1 else 1000, invalid if source == 200 else 0
+        invalid if source == 1 else ac, invalid if source == 200 else 0
     )
     assert all(e.native_value is None and not e.available for e in derived.values())
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ac", [1000, 0, -538.3])
 @pytest.mark.parametrize("source", [1, 200])
 @pytest.mark.parametrize(
     "failure",
     ["device", "model", "missing_model", "missing_value", "missing_device", "endpoint"],
 )
-async def test_offline_and_recovery(source, failure):
-    coordinator, _, derived = await site()
+async def test_offline_and_recovery(source, failure, ac):
+    coordinator, _, derived = await site(ac, 1000)
     original = coordinator.data
     changed = []
     for device in original.devices:
@@ -192,10 +199,11 @@ async def test_metadata_localization_and_discovery():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ac", [1000, 0, -538.3])
 @pytest.mark.parametrize("role", ["inverter", "meter"])
 @pytest.mark.parametrize("online", [True, False])
-async def test_ambiguous_topology_is_not_silently_selected(role, online):
-    coordinator, _, derived = await site()
+async def test_ambiguous_topology_is_not_silently_selected(role, online, ac):
+    coordinator, _, derived = await site(ac, 1000)
     original = coordinator.data
     extra = replace(
         original.devices[0 if role == "inverter" else 1],

@@ -610,7 +610,7 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
             ratio = 100 * (1 - imported / consumption)
         else:
             if ac_power <= 0:
-                return None
+                return 100.0 if exported == 0 else None
             ratio = 100 * consumption / ac_power
         return min(100, max(0, ratio))
 

@@ -389,6 +389,7 @@ async def test_solar_roles_and_later_discovery_keep_identities():
 
     assert {e.key for e in solar()} == {
         "inverter_efficiency",
+        "rectifier_efficiency",
         "pv_power",
         "backup_mode",
         "consumption_power",
@@ -402,6 +403,7 @@ async def test_solar_roles_and_later_discovery_keep_identities():
     await coordinator.async_refresh()
     assert {e.key for e in solar()} == {
         "inverter_efficiency",
+        "rectifier_efficiency",
         "consumption_power",
         "autarky",
         "self_consumption",
@@ -416,7 +418,7 @@ async def test_solar_roles_and_later_discovery_keep_identities():
     await coordinator.async_refresh()
     device.fail_reads = False
     await coordinator.async_refresh()
-    assert len(solar()) == 9
+    assert len(solar()) == 10
     await coordinator.async_stop()
 
 

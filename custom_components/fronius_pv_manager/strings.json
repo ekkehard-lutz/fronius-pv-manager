@@ -58,6 +58,7 @@
     },
     "sensor": {
       "inverter_efficiency": {"name": "Inverter Efficiency"},
+      "rectifier_efficiency": {"name": "Rectifier Efficiency"},
       "battery_lifetime_efficiency": {"name": "Battery Lifetime Efficiency"},
       "consumption_power": {"name": "Consumption Power"},
       "autarky": {"name": "Autarky"},

@@ -891,11 +891,11 @@ Entity and translation keys are `consumption_power`, `autarky`, and
 Unique IDs follow `{entry_id}_device{device_id}_inverter_hlc_{key}` using the
 inverter's Modbus device ID. Existing raw and semantic sensors are unchanged.
 
-### Inverter and battery efficiency
+### Inverter, rectifier, and battery efficiency
 
-Two read-only semantic sensors use decoded Modbus data, independently of whether
-source entities are enabled. Both use `%`, state class `measurement`, and no
-device class, following the existing percentage sensors. Neither clamps results
+Three read-only semantic sensors use decoded Modbus data, independently of whether
+source entities are enabled. All use `%`, state class `measurement`, and no
+device class, following the existing percentage sensors. None clamps results
 to 100%; mathematically valid values above 100% remain visible.
 
 **Inverter Efficiency / Wechselrichter-Wirkungsgrad** belongs to the inverter:
@@ -913,6 +913,31 @@ GEN24, MPPT also occurs during battery-to-AC operation with approximately zero
 PV production. This is an observation, not a universal firmware guarantee.
 Instantaneous source readings may not be synchronized, so a result over 100%
 can reveal timing, resolution, or power-balance discrepancies.
+
+**Rectifier Efficiency / Gleichrichter-Wirkungsgrad** belongs to the inverter
+and describes the reverse, net AC-to-DC direction:
+
+```text
+dc_balance = PV DC + battery discharge DC - battery charge DC
+rectifier efficiency = 100 * (-dc_balance) / (-inverter AC power)
+```
+
+The calculation requires both `dc_balance < 0` and `inverter AC power < 0`,
+and Operating State `MPPT`. Zero AC power, zero DC balance, or disagreeing
+conversion directions make it unavailable. No minimum-power threshold is applied,
+and values above 100% remain visible to expose timing, scaling, or balance anomalies.
+It reuses the same already-polled Model 103 and Model 160 sources as Inverter
+Efficiency, with no additional Modbus reads. The two sensors remain direction-specific;
+Inverter Efficiency retains its existing formula and availability behavior.
+
+User-supplied GEN24 measurements during forced grid charging support this semantic
+calculation; they are empirical observations, not a universal vendor specification.
+For example, 507.00 W PV, 1000.30 W battery charge, zero discharge, and -538.30 W AC
+produce a DC balance of -493.30 W and approximately 91.64% efficiency. With zero PV,
+950.40 W charge and -1001.10 W AC, the result is approximately 94.94%. At low power,
+291.18 W PV, 300.08 W charge and -48.48 W AC yield approximately 18.36%.
+The observed transition of 306.44 W PV, 295.45 W charge, zero discharge, and
+-5.344 W AC is unavailable because the DC balance is positive (+10.99 W).
 
 **Battery Lifetime Efficiency / Speicher-Gesamtwirkungsgrad** belongs to storage:
 
@@ -954,7 +979,7 @@ already normalized to Wh by decoding (`raw * 10^SF`), so no additional Wh/kWh
 conversion is performed. SoC is divided by 100 to obtain a fraction; the final
 ratio is multiplied by 100 to obtain percent.
 
-Sources must belong to the **same Modbus device ID**. Inverter Efficiency requires
+Sources must belong to the **same Modbus device ID**. Inverter and Rectifier Efficiency require
 one Model 103 and one Model 160; Battery Lifetime Efficiency requires one each of
 Models 120, 124, and 160. Duplicate required models or multiple classified charge
 or discharge modules are ambiguous and make the affected sensor unavailable.
@@ -963,17 +988,23 @@ independently. No meter or Solar API is required.
 
 Each calculation requires exactly one classified charge and discharge module,
 including valid explicit zero readings during PV-only operation. Missing modules
-are not inferred as zero. Inverter Efficiency also requires at least one MPPT
+are not inferred as zero. Inverter and Rectifier Efficiency also require at least one MPPT
 and valid power from every classified MPPT (stricter than the existing PV Power
 sensor's sum of available values). Unknown modules do not contribute.
 
-Missing, offline, nonnumeric, negative, NaN, or infinite required numeric sources
-make the affected sensor unavailable. Effective DC input and charged lifetime
-energy must be positive; AC output may be zero. Nominal capacity must be positive
+Missing, offline, nonnumeric, NaN, or infinite required numeric sources
+make the affected sensor unavailable. Negative DC source values are invalid; negative
+AC power is accepted only by Rectifier Efficiency. For Inverter Efficiency, effective
+DC input must be positive and AC output may be zero. For Battery Lifetime Efficiency,
+charged lifetime energy and nominal capacity must be positive
 and SoC must lie within 0–100%. Non-finite calculated results are unavailable.
 Discovery and recovery use the existing semantic-entity lifecycle.
 
-Keys are `inverter_efficiency` and `battery_lifetime_efficiency`. Suggested object
+The Rectifier Efficiency key is `rectifier_efficiency`, its suggested object ID is
+`inverter_rectifier_efficiency`, and its unique ID is
+`{entry_id}_device{device_id}_inverter_hlc_rectifier_efficiency`.
+
+Other keys are `inverter_efficiency` and `battery_lifetime_efficiency`. Suggested object
 IDs follow the existing role-prefix convention: `inverter_inverter_efficiency`
 and `storage_battery_lifetime_efficiency`. Unique IDs are
 `{entry_id}_device{device_id}_{role}_hlc_{key}`, with roles `inverter` and `storage`

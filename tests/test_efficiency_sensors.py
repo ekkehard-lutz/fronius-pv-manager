@@ -288,7 +288,11 @@ async def test_devices_discovery_metadata_and_offline_recovery():
     original = populated.data
     for _ in range(2):
         coordinator.async_set_updated_data(original)
-    derived = [e for e in entities if isinstance(e, SolarEfficiencySensor)]
+    derived = [
+        e
+        for e in entities
+        if isinstance(e, SolarEfficiencySensor) and e.key != "rectifier_efficiency"
+    ]
     assert len(derived) == 2
     for entity in derived:
         assert entity.available

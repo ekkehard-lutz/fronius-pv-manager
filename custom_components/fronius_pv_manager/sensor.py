@@ -644,7 +644,16 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
         )
         if device is None or not device.available:
             return None
-        inverter = self.key == "inverter_efficiency"
+        rectifier = self.key == "rectifier_efficiency"
+        if (
+            rectifier
+            and sum(
+                d.device_id == self.device_id for d in self.coordinator.data.devices
+            )
+            != 1
+        ):
+            return None
+        inverter = self.key == "inverter_efficiency" or rectifier
         required = (103, 160) if inverter else (120, 124, 160)
         models = {}
         for model_id in required:
@@ -672,7 +681,13 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
             state = models[103].fixed.get("St")
             if state is None or state.value != "MPPT":
                 return None
-            ac = _efficiency_number(models[103].fixed, "W")
+            if rectifier:
+                register = models[103].fixed.get("W")
+                ac = register.value if register is not None else None
+                if type(ac) not in (int, float) or not math.isfinite(ac) or ac >= 0:
+                    return None
+            else:
+                ac = _efficiency_number(models[103].fixed, "W")
             pv = [
                 _efficiency_number(m.values, "DCW")
                 for m in modules[Model160ModuleKind.MPPT]
@@ -681,6 +696,10 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
                 return None
             denominator = sum(pv) + discharging - charging
             numerator = ac
+            if rectifier:
+                if denominator >= 0 or not math.isfinite(denominator):
+                    return None
+                numerator, denominator = -denominator, -ac
         else:
             soc = _efficiency_number(models[124].fixed, "ChaState")
             capacity = _efficiency_number(models[120].fixed, "WHRtg")
@@ -703,6 +722,9 @@ def _solar_sensors(coordinator, entry_id, device_id):
     return [
         SolarEfficiencySensor(
             coordinator, entry_id, device_id, "inverter_efficiency", "inverter"
+        ),
+        SolarEfficiencySensor(
+            coordinator, entry_id, device_id, "rectifier_efficiency", "inverter"
         ),
         SolarEfficiencySensor(
             coordinator, entry_id, device_id, "battery_lifetime_efficiency", "storage"

@@ -58,6 +58,7 @@
     },
     "sensor": {
       "inverter_efficiency": {"name": "Wechselrichter-Wirkungsgrad"},
+      "rectifier_efficiency": {"name": "Gleichrichter-Wirkungsgrad"},
       "battery_lifetime_efficiency": {"name": "Speicher-Gesamtwirkungsgrad"},
       "consumption_power": {"name": "Verbrauchsleistung"},
       "autarky": {"name": "Autarkiegrad"},

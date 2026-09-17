@@ -5,10 +5,11 @@ Fronius systems that expose SunSpec over Modbus TCP. It discovers supported
 inverter, storage, and Smart Meter capabilities and organizes their entities as
 separate Home Assistant devices.
 
-Fronius PV Manager v1.0.1 is a documentation and release-history cleanup of
-v1.0.0, the first official stable release. Functionality includes high-level
-storage controls and the programmatic remote-control interface. PV Manager
-supplies device-near validation and control; tariff optimization, scheduling,
+Fronius PV Manager v1.1.0 adds nine semantic sensors for PV and grid power,
+consumption, self-supply, and conversion and battery lifetime efficiency.
+Functionality also includes high-level storage controls and the programmatic
+remote-control interface. PV Manager supplies device-near validation and control;
+tariff optimization, scheduling,
 and continuous strategy belong to a future Energy Manager. It does not
 continuously reassert targets.
 
@@ -21,6 +22,9 @@ continuously reassert targets.
 - Multiple Modbus device IDs on one configured host and port.
 - Stable, language-independent entity identities with translated display names.
 - Operational and diagnostic sensors backed by reviewed register definitions.
+- PV Power, Grid Import Power, and Grid Export Power for Energy Dashboard power flows.
+- Consumption Power, Autarky, and Self Consumption for instantaneous site usage.
+- Inverter Efficiency, Rectifier Efficiency, and Battery Lifetime Efficiency.
 - English and German Home Assistant translations.
 - Device-specific availability: one unavailable Modbus device does not hide
   healthy devices on the same endpoint.
@@ -54,6 +58,9 @@ supported models with compatible register semantics are expected to work, but
 remain unverified until tested on real hardware. This is not a blanket
 compatibility claim for all GEN24 inverters, BYD batteries, or Fronius Smart
 Meters.
+
+The v1.1.0 functionality has been successfully runtime-tested on a real Fronius
+GEN24 installation. This validation does not extend the compatibility claims above.
 
 ### Installation with HACS
 
@@ -865,23 +872,23 @@ Three additional read-only semantic sensors belong to the existing inverter:
 | --- | --- | --- |
 | Consumption Power / Verbrauchsleistung | `max(0, inverter AC power + grid import power - grid export power)` | W |
 | Autarky / Autarkiegrad | `100 * (1 - grid import power / consumption power)`, clamped to 0–100 | % |
-| Self-Consumption / Eigenverbrauch | For positive inverter AC power: `100 * consumption power / inverter AC power`, clamped to 0–100 | % |
+| Self Consumption / Eigenverbrauch | For positive inverter AC power: `100 * consumption power / inverter AC power`, clamped to 0–100 | % |
 
 These are instantaneous measurements (`state_class: measurement`), not ratios of
 accumulated energy. Consumption Power has device class `power`; the percentage
 sensors have no device class. Negative consumption residuals caused by measurement
 timing are clamped to zero. Autarky is unavailable at zero consumption.
 When inverter AC power is zero or negative and grid export is zero,
-Self-Consumption is 100.0%, including forced grid charging with or without PV
+Self Consumption is 100.0%, including forced grid charging with or without PV
 production, as observed on GEN24 against native Fronius SolarNet readings.
-With nonpositive inverter AC power and positive grid export, Self-Consumption
+With nonpositive inverter AC power and positive grid export, Self Consumption
 remains unavailable because this combination has not been empirically validated.
 This edge case does not change Inverter Efficiency, which represents DC-to-AC
 conversion only and remains unavailable during net AC-to-DC operation.
 Any missing, invalid, or offline required source makes the derived value
 unavailable; missing measurements are never replaced with zero.
 
-**Self-Consumption uses locally consumed inverter AC output, not PV Power.**
+**Self Consumption uses locally consumed inverter AC output, not PV Power.**
 Battery discharge therefore contributes through inverter AC power. This is the
 integration's defined semantic behavior, supported by empirical comparison with
 native Fronius SolarNet readings; it is not claimed as a vendor specification.

@@ -1,7 +1,9 @@
 """Read-only sensor entities backed exclusively by coordinator data."""
 
+import math
 import re
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -493,9 +495,290 @@ class BatteryOperationMode(SolarEntity, SensorEntity):
         return self.value
 
 
+def _semantic_number(value):
+    """Accept finite engineering values without coercing types or losing precision."""
+    if type(value) not in (int, float):
+        return None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:
+        # Integer + scale-factor decoding can exceed float representability.
+        return None
+
+
+def _safe_semantic_calculation(calculate):
+    """Reject arithmetic overflow and non-finite results at the sensor boundary."""
+
+    @wraps(calculate)
+    def checked(self):
+        try:
+            return _semantic_number(calculate(self))
+        except OverflowError:
+            return None
+
+    return checked
+
+
+def _power_model(coordinator, device_id, model_id):
+    """Select one live model, agreeing with current and cached discovery."""
+    if not coordinator.last_update_success:
+        return None
+    live = [d for d in coordinator.data.devices if d.device_id == device_id]
+    topology = [d for d in coordinator.entity_data.devices if d.device_id == device_id]
+    if len(live) != 1 or not live[0].available or len(topology) != 1:
+        return None
+    matches = [s for s in live[0].decoded_models if s.discovered.model_id == model_id]
+    if len(matches) != 1 or not matches[0].available:
+        return None
+    for device in (live[0], topology[0]):
+        candidates = [m for m in device.discovered_models if m.model_id == model_id]
+        if candidates != [matches[0].discovered]:
+            return None
+    return matches[0].decoded
+
+
+class SolarPowerSensor(SolarEntity, SensorEntity):
+    """Read semantic power from current Modbus data, independent of Solar API."""
+
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    @_safe_semantic_calculation
+    def value(self):
+        model = _power_model(
+            self.coordinator, self.device_id, 160 if self.key == "pv_power" else 203
+        )
+        if model is None:
+            return None
+        if self.key == "pv_power":
+            powers = []
+            for module in model.repeating.get("module", ()):
+                if (
+                    classify_model_160_module(module).semantic_kind
+                    is Model160ModuleKind.MPPT
+                ):
+                    register = module.values.get("DCW")
+                    if register is None or register.value is None:
+                        continue  # Preserve intentional partial MPPT summation.
+                    power = _semantic_number(register.value)
+                    if power is None or power < 0:
+                        return None
+                    powers.append(power)
+            return sum(powers) if powers else None
+        register = model.fixed.get("W")
+        power = _semantic_number(register.value if register is not None else None)
+        if power is None:
+            return None
+        # Fronius Model 203 at the grid connection: positive import, negative export.
+        # https://manuals.fronius.com/html/4204102649/en-US.html (Meter Model)
+        return _grid_direction_power(power, self.key)
+
+    @property
+    def native_value(self):
+        return self.value
+
+
+def _grid_direction_power(power, key):
+    """Share the existing signed-meter semantics with site calculations."""
+    return max(power if key == "grid_import_power" else -power, 0)
+
+
+def _active_power(coordinator, device_id, model_id):
+    """Read one finite active-power value without using cached offline readings."""
+    model = _power_model(coordinator, device_id, model_id)
+    if model is None:
+        return None
+    power = model.fixed.get("W")
+    return _semantic_number(power.value if power is not None else None)
+
+
+class SolarConsumptionSensor(SolarEntity, SensorEntity):
+    """Site consumption and instantaneous ratios on the existing inverter."""
+
+    def __init__(self, coordinator, entry_id, device_id, key):
+        super().__init__(coordinator, entry_id, device_id, key, "inverter")
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        if key == "consumption_power":
+            self._attr_native_unit_of_measurement = UnitOfPower.WATT
+            self._attr_device_class = SensorDeviceClass.POWER
+
+    @property
+    @_safe_semantic_calculation
+    def value(self):
+        # Topology, rather than just online devices, prevents silently switching
+        # sources when a meter or inverter goes offline. No site mapping exists.
+        topology = self.coordinator.entity_data.devices
+        inverters = [
+            d.device_id
+            for d in topology
+            if any(m.model_id == 103 for m in d.discovered_models)
+        ]
+        meters = [
+            d.device_id
+            for d in topology
+            if any(m.model_id == 203 for m in d.discovered_models)
+        ]
+        if inverters != [self.device_id] or len(meters) != 1:
+            return None
+        ac_power = _active_power(self.coordinator, self.device_id, 103)
+        meter_power = _active_power(self.coordinator, meters[0], 203)
+        if ac_power is None or meter_power is None:
+            return None
+        imported = _grid_direction_power(meter_power, "grid_import_power")
+        exported = _grid_direction_power(meter_power, "grid_export_power")
+        residual = _semantic_number(ac_power + imported - exported)
+        if residual is None:
+            return None
+        consumption = max(0, residual)
+        if self.key == "consumption_power":
+            return consumption
+        if self.key == "autarky":
+            if consumption <= 0:
+                return None
+            ratio = 100 * (1 - imported / consumption)
+        else:
+            if ac_power <= 0:
+                return 100.0 if exported == 0 else None
+            ratio = 100 * consumption / ac_power
+        if _semantic_number(ratio) is None:
+            return None
+        return min(100, max(0, ratio))
+
+    @property
+    def native_value(self):
+        return self.value
+
+
+def _efficiency_number(values, key):
+    """Read a finite, nonnegative decoded engineering value."""
+    register = values.get(key)
+    value = _semantic_number(register.value if register is not None else None)
+    if value is None or value < 0:
+        return None
+    return value
+
+
+class SolarEfficiencySensor(SolarEntity, SensorEntity):
+    """Efficiency from unambiguous models on one Modbus inverter/storage system."""
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    @_safe_semantic_calculation
+    def value(self):
+        if not self.coordinator.last_update_success:
+            return None
+        device = next(
+            (d for d in self.coordinator.data.devices if d.device_id == self.device_id),
+            None,
+        )
+        if device is None or not device.available:
+            return None
+        rectifier = self.key == "rectifier_efficiency"
+        if (
+            rectifier
+            and sum(
+                d.device_id == self.device_id for d in self.coordinator.data.devices
+            )
+            != 1
+        ):
+            return None
+        inverter = self.key == "inverter_efficiency" or rectifier
+        required = (103, 160) if inverter else (120, 124, 160)
+        models = {}
+        for model_id in required:
+            matches = [
+                s for s in device.decoded_models if s.discovered.model_id == model_id
+            ]
+            discovered = [m for m in device.discovered_models if m.model_id == model_id]
+            if len(discovered) != 1 or len(matches) != 1 or not matches[0].available:
+                return None
+            models[model_id] = matches[0].decoded
+        modules = {kind: [] for kind in Model160ModuleKind}
+        for module in models[160].repeating.get("module", ()):
+            modules[classify_model_160_module(module).semantic_kind].append(module)
+        charge = modules[Model160ModuleKind.STORAGE_CHARGE]
+        discharge = modules[Model160ModuleKind.STORAGE_DISCHARGE]
+        if len(charge) != 1 or len(discharge) != 1:
+            return None
+        field = "DCW" if inverter else "DCWH"
+        charging = _efficiency_number(charge[0].values, field)
+        discharging = _efficiency_number(discharge[0].values, field)
+        if charging is None or discharging is None:
+            return None
+        if inverter:
+            # Decoder enum label from Model 103 St=4, never an HA translation.
+            state = models[103].fixed.get("St")
+            if state is None or state.value != "MPPT":
+                return None
+            if rectifier:
+                register = models[103].fixed.get("W")
+                ac = _semantic_number(register.value if register is not None else None)
+                if ac is None or ac >= 0:
+                    return None
+            else:
+                ac = _efficiency_number(models[103].fixed, "W")
+            pv = [
+                _efficiency_number(m.values, "DCW")
+                for m in modules[Model160ModuleKind.MPPT]
+            ]
+            if ac is None or not pv or any(p is None for p in pv):
+                return None
+            denominator = sum(pv) + discharging - charging
+            numerator = ac
+            if rectifier:
+                if _semantic_number(denominator) is None or denominator >= 0:
+                    return None
+                numerator, denominator = -denominator, -ac
+        else:
+            soc = _efficiency_number(models[124].fixed, "ChaState")
+            capacity = _efficiency_number(models[120].fixed, "WHRtg")
+            if soc is None or soc > 100 or capacity is None or capacity <= 0:
+                return None
+            # DCWH and WHRtg are already scaled Wh; ChaState is percent.
+            numerator = discharging + capacity * (soc / 100)
+            denominator = charging
+        if (
+            _semantic_number(numerator) is None
+            or _semantic_number(denominator) is None
+            or denominator <= 0
+        ):
+            return None
+        result = 100 * (numerator / denominator)
+        return result
+
+    @property
+    def native_value(self):
+        return self.value
+
+
 def _solar_sensors(coordinator, entry_id, device_id):
     return [
+        SolarEfficiencySensor(
+            coordinator, entry_id, device_id, "inverter_efficiency", "inverter"
+        ),
+        SolarEfficiencySensor(
+            coordinator, entry_id, device_id, "rectifier_efficiency", "inverter"
+        ),
+        SolarEfficiencySensor(
+            coordinator, entry_id, device_id, "battery_lifetime_efficiency", "storage"
+        ),
+        *(
+            SolarConsumptionSensor(coordinator, entry_id, device_id, key)
+            for key in ("consumption_power", "autarky", "self_consumption")
+        ),
         BatteryOperationMode(
             coordinator, entry_id, device_id, "battery_operation_mode", "storage"
-        )
+        ),
+        SolarPowerSensor(coordinator, entry_id, device_id, "pv_power", "inverter"),
+        SolarPowerSensor(
+            coordinator, entry_id, device_id, "grid_import_power", "meter"
+        ),
+        SolarPowerSensor(
+            coordinator, entry_id, device_id, "grid_export_power", "meter"
+        ),
     ]

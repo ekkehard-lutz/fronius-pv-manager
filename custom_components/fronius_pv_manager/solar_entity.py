@@ -1,4 +1,4 @@
-"""High-level Solar API entities on existing inverter/storage devices."""
+"""High-level semantic entities on existing physical devices."""
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -9,7 +9,7 @@ from .semantics import classify_model_160_modules, physical_role_for_model
 
 
 class SolarEntity(CoordinatorEntity):
-    """Availability depends only on the individual Solar API field."""
+    """Availability depends on the individual semantic value."""
 
     _attr_has_entity_name = True
 

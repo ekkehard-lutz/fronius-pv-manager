@@ -57,6 +57,15 @@
       }
     },
     "sensor": {
+      "inverter_efficiency": {"name": "Wechselrichter-Wirkungsgrad"},
+      "rectifier_efficiency": {"name": "Gleichrichter-Wirkungsgrad"},
+      "battery_lifetime_efficiency": {"name": "Speicher-Gesamtwirkungsgrad"},
+      "consumption_power": {"name": "Verbrauchsleistung"},
+      "autarky": {"name": "Autarkiegrad"},
+      "self_consumption": {"name": "Eigenverbrauch"},
+      "pv_power": {"name": "PV-Leistung"},
+      "grid_import_power": {"name": "Netzbezugsleistung"},
+      "grid_export_power": {"name": "Netzeinspeiseleistung"},
       "battery_operation_mode": {
         "name": "Batterie Betriebszustand",
         "state": {

@@ -41,9 +41,11 @@ async def load_platforms(hass, entry):
     entities = []
     for platform in (sensor, number, select, switch):
         await platform.async_setup_entry(
-            hass, entry, lambda items: entities.extend(
+            hass,
+            entry,
+            lambda items: entities.extend(
                 e for e in items if not isinstance(e, SolarEntity)
-            )
+            ),
         )
     return entities
 
@@ -220,3 +222,171 @@ async def test_cached_platforms_are_constructed_before_any_runtime_io(monkeypatc
     assert await async_setup_entry(hass, entry)
     assert all(entity.available for entity in entities)
     assert await async_unload_entry(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_nine_semantic_sensors_persisted_topology_lifecycle(monkeypatch):
+    """Persist identity only, then recover both conversion directions in place."""
+    from custom_components.fronius_pv_manager.register_maps import (
+        MODEL_103,
+        MODEL_120,
+        MODEL_124,
+        MODEL_203,
+    )
+
+    registers, bases = model_chain((103, 50), (120, 26), (124, 24), (160, 68))
+    meter_registers, meter_bases = model_chain((203, 105))
+    transports = {7: FakeTransport(registers), 42: FakeTransport(meter_registers)}
+
+    def fixed(unit, definition, **values):
+        base = (bases if unit == 7 else meter_bases)[definition.model_ids[0]]
+        for name, value in values.items():
+            register = next(r for r in definition.registers if r.name == name)
+            for word in range(register.size):
+                transports[unit].registers[base + register.offset + word] = (
+                    value >> (16 * (register.size - word - 1))
+                ) & 0xFFFF
+
+    dc_base = bases[160]
+    transports[7].registers[dc_base + 6] = 3
+    for index, name in enumerate(("MPPT 1", "StCha", "StDisCha")):
+        base = dc_base + 8 + 20 * index
+        transports[7].registers[base] = index + 1
+        encoded = name.encode().ljust(16, b"\0")
+        for word in range(8):
+            transports[7].registers[base + 1 + word] = int.from_bytes(
+                encoded[2 * word : 2 * word + 2], "big"
+            )
+    # Model 160 counters and power use zero scale factors.
+    transports[7].registers[dc_base + 8 + 11] = 1000
+    transports[7].registers[dc_base + 28 + 13] = 10000
+    transports[7].registers[dc_base + 48 + 13] = 8000
+    fixed(7, MODEL_103, W=900, St=4)
+    fixed(7, MODEL_120, WHRtg=1000)
+    fixed(7, MODEL_124, WChaMax=6000, ChaState=50)
+    fixed(42, MODEL_203, W=-400)
+
+    validation = _validate_endpoint(
+        "192.0.2.1",
+        502,
+        (7, 42),
+        lambda host, *, port, device_id: transports[device_id],
+    )
+    topology = json.loads(json.dumps(validation.topology))
+    for transport in transports.values():
+        transport.connection_error = True
+    install_endpoint_factory(monkeypatch, transports)
+    hass = FakeHass()
+    entry = FakeEntry(
+        {
+            CONF_HOST: "192.0.2.1",
+            CONF_DEVICE_IDS: [7, 42],
+            CONF_TOPOLOGY: topology,
+        }
+    )
+    assert await async_setup_entry(hass, entry)
+    coordinator = entry.runtime_data
+    entities = []
+    await sensor.async_setup_entry(hass, entry, entities.extend)
+    keys = {
+        "pv_power",
+        "grid_import_power",
+        "grid_export_power",
+        "consumption_power",
+        "autarky",
+        "self_consumption",
+        "inverter_efficiency",
+        "rectifier_efficiency",
+        "battery_lifetime_efficiency",
+    }
+
+    def semantic():
+        return {
+            e.key: e for e in entities if isinstance(e, SolarEntity) and e.key in keys
+        }
+
+    original = semantic()
+    assert set(original) == keys
+    ids = {key: e.unique_id for key, e in original.items()}
+    assert all(not e.available and e.native_value is None for e in original.values())
+    try:
+        for transport in transports.values():
+            transport.connection_error = False
+        await coordinator.async_refresh()
+        expected = {
+            "pv_power": 1000,
+            "grid_import_power": 0,
+            "grid_export_power": 400,
+            "consumption_power": 500,
+            "autarky": 100,
+            "self_consumption": 100 * 500 / 900,
+            "inverter_efficiency": 90,
+            "rectifier_efficiency": None,
+            "battery_lifetime_efficiency": 85,
+        }
+
+        def check(values):
+            current = semantic()
+            assert (
+                sum(isinstance(e, SolarEntity) and e.key in keys for e in entities) == 9
+            )
+            assert all(current[key] is original[key] for key in keys)
+            assert {key: e.unique_id for key, e in current.items()} == ids
+            for key, value in values.items():
+                assert current[key].available == (value is not None)
+                assert current[key].native_value == (
+                    pytest.approx(value) if value is not None else None
+                )
+
+        check(expected)
+        for unit in (42, 7):
+            transports[unit].fail_reads = True
+            await coordinator.async_refresh()
+            affected = (
+                {
+                    "grid_import_power",
+                    "grid_export_power",
+                    "consumption_power",
+                    "autarky",
+                    "self_consumption",
+                }
+                if unit == 42
+                else keys - {"grid_import_power", "grid_export_power"}
+            )
+            check(
+                {
+                    key: None if key in affected else value
+                    for key, value in expected.items()
+                }
+            )
+            transports[unit].fail_reads = False
+            await coordinator.async_refresh()
+            check(expected)
+        # A new outage must not use values from the topology cache.
+        for transport in transports.values():
+            transport.fail_reads = True
+        await coordinator.async_refresh()
+        check(dict.fromkeys(keys))
+        for transport in transports.values():
+            transport.fail_reads = False
+        # Reverse conversion makes the other efficiency sensor recover in place.
+        fixed(7, MODEL_103, W=-500)
+        fixed(42, MODEL_203, W=600)
+        transports[7].registers[dc_base + 8 + 11] = 100
+        transports[7].registers[dc_base + 28 + 11] = 500
+        await coordinator.async_refresh()
+        check(
+            {
+                "pv_power": 100,
+                "grid_import_power": 600,
+                "grid_export_power": 0,
+                "consumption_power": 100,
+                "autarky": 0,
+                "self_consumption": 100,
+                "inverter_efficiency": None,
+                "rectifier_efficiency": 80,
+                "battery_lifetime_efficiency": 85,
+            }
+        )
+    finally:
+        assert await async_unload_entry(hass, entry)

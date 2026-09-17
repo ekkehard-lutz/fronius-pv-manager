@@ -5,10 +5,11 @@ Fronius systems that expose SunSpec over Modbus TCP. It discovers supported
 inverter, storage, and Smart Meter capabilities and organizes their entities as
 separate Home Assistant devices.
 
-Fronius PV Manager v1.0.1 is a documentation and release-history cleanup of
-v1.0.0, the first official stable release. Functionality includes high-level
-storage controls and the programmatic remote-control interface. PV Manager
-supplies device-near validation and control; tariff optimization, scheduling,
+Fronius PV Manager v1.1.0 adds nine semantic sensors for PV and grid power,
+consumption, self-supply, and conversion and battery lifetime efficiency.
+Functionality also includes high-level storage controls and the programmatic
+remote-control interface. PV Manager supplies device-near validation and control;
+tariff optimization, scheduling,
 and continuous strategy belong to a future Energy Manager. It does not
 continuously reassert targets.
 
@@ -21,6 +22,9 @@ continuously reassert targets.
 - Multiple Modbus device IDs on one configured host and port.
 - Stable, language-independent entity identities with translated display names.
 - Operational and diagnostic sensors backed by reviewed register definitions.
+- PV Power, Grid Import Power, and Grid Export Power for Energy Dashboard power flows.
+- Consumption Power, Autarky, and Self Consumption for instantaneous site usage.
+- Inverter Efficiency, Rectifier Efficiency, and Battery Lifetime Efficiency.
 - English and German Home Assistant translations.
 - Device-specific availability: one unavailable Modbus device does not hide
   healthy devices on the same endpoint.
@@ -54,6 +58,9 @@ supported models with compatible register semantics are expected to work, but
 remain unverified until tested on real hardware. This is not a blanket
 compatibility claim for all GEN24 inverters, BYD batteries, or Fronius Smart
 Meters.
+
+The v1.1.0 functionality has been successfully runtime-tested on a real Fronius
+GEN24 installation. This validation does not extend the compatibility claims above.
 
 ### Installation with HACS
 
@@ -813,6 +820,215 @@ Both explicit release and watchdog timeout ended in Automatic and restored the
 pre-remote reserve, grid permission, and saved user power profile. These results
 apply to the tested GEN24 setup; they do not guarantee identical behavior across
 all firmware, batteries, devices, or operating conditions.
+
+## Energy Dashboard power sensors
+
+Three enabled, read-only high-level sensors use existing decoded Modbus data:
+
+| Sensor | Physical device | Source |
+| --- | --- | --- |
+| PV Power | Inverter | Sum of available MPPT `DCW` values within one unambiguous Model 160. |
+| Grid Import Power | Meter | `max(W, 0)` from Model 203 signed AC active power. |
+| Grid Export Power | Meter | `max(-W, 0)` from Model 203 signed AC active power. |
+
+PV Power excludes storage charge/discharge and unknown modules using the existing
+Model 160 classification. It never uses aggregate inverter DC power, which can
+include battery power on GEN24. Any number of discovered MPPTs is supported;
+missing MPPT values are omitted, and no available MPPT values means unavailable.
+A valid zero remains zero. A present but malformed or negative MPPT power value
+makes PV Power unavailable rather than contributing to a partial total.
+Failed device/model polls do not supply stale values.
+
+Grid directions follow the [Fronius meter convention](https://manuals.fronius.com/html/4204102649/en-US.html)
+for a meter at the grid connection: positive means import, negative means export.
+Select the grid-connection meter for Energy Dashboard use; a load or generator
+meter measures a different flow. Missing meter power makes both sensors
+unavailable. Both directions are non-negative and cannot be positive together.
+
+PV Power requires one unambiguous Model 160 and grid power requires one
+unambiguous Model 203 on the selected device. Duplicate occurrences, including
+those retained in persisted/offline topology, make the affected sensor unavailable.
+Live decoded source selection must agree with current and cached discovery.
+
+All nine semantic power and percentage sensors reject booleans, nonnumeric values,
+unsupported numeric types, NaN, infinity, and engineering values too large for safe
+arithmetic.
+Overflow or non-finite calculation results produce unavailable values, not
+exceptions or clamped percentages. This adds no operational power threshold.
+
+PV Power plus Grid Import/Export Power are suitable for Home Assistant Energy
+Dashboard **power-flow configuration**. All use W, device class `power`, and
+state class `measurement`; energy totals remain separate sensors. Suggested
+object IDs are `inverter_pv_power`, `meter_grid_import_power`, and
+`meter_grid_export_power`, independent of UI language. English and German display
+names are provided. Entities also appear when topology is discovered after
+startup. These sensors need no Solar API access and leave raw sensors unchanged.
+
+### Consumption and instantaneous percentages
+
+Three additional read-only semantic sensors belong to the existing inverter:
+
+| Sensor (English / German) | Calculation | Unit |
+| --- | --- | --- |
+| Consumption Power / Verbrauchsleistung | `max(0, inverter AC power + grid import power - grid export power)` | W |
+| Autarky / Autarkiegrad | `100 * (1 - grid import power / consumption power)`, clamped to 0–100 | % |
+| Self Consumption / Eigenverbrauch | For positive inverter AC power: `100 * consumption power / inverter AC power`, clamped to 0–100 | % |
+
+These are instantaneous measurements (`state_class: measurement`), not ratios of
+accumulated energy. Consumption Power has device class `power`; the percentage
+sensors have no device class. Negative consumption residuals caused by measurement
+timing are clamped to zero. Autarky is unavailable at zero consumption.
+When inverter AC power is zero or negative and grid export is zero,
+Self Consumption is 100.0%, including forced grid charging with or without PV
+production, as observed on GEN24 against native Fronius SolarNet readings.
+With nonpositive inverter AC power and positive grid export, Self Consumption
+remains unavailable because this combination has not been empirically validated.
+This edge case does not change Inverter Efficiency, which represents DC-to-AC
+conversion only and remains unavailable during net AC-to-DC operation.
+Any missing, invalid, or offline required source makes the derived value
+unavailable; missing measurements are never replaced with zero.
+
+**Self Consumption uses locally consumed inverter AC output, not PV Power.**
+Battery discharge therefore contributes through inverter AC power. This is the
+integration's defined semantic behavior, supported by empirical comparison with
+native Fronius SolarNet readings; it is not claimed as a vendor specification.
+For example, 991.4 W inverter AC output and 679.1 W grid export yield 312.3 W
+consumption, 100% autarky, and approximately 31.50% self-consumption, even when
+that output comes from forced battery discharge. With 4505 W inverter AC and
+6329 W grid import, consumption is 10834 W, autarky approximately 41.58%, and
+self-consumption 100%.
+
+Calculation requires exactly one discovered Model 103 inverter and one Model 203
+meter in the integration entry. The meter must measure the grid connection, as
+for Grid Import/Export Power above. There is currently no explicit site/meter
+mapping: multiple inverters or meters make these three derived sensors unavailable,
+even if only one is online. The calculation recovers when the required sources
+become available, including discovery after startup. Solar API access is not needed.
+
+Entity and translation keys are `consumption_power`, `autarky`, and
+`self_consumption`. Stable English suggested object IDs are
+`inverter_consumption_power`, `inverter_autarky`, and `inverter_self_consumption`.
+Unique IDs follow `{entry_id}_device{device_id}_inverter_hlc_{key}` using the
+inverter's Modbus device ID. Existing raw and semantic sensors are unchanged.
+
+### Inverter, rectifier, and battery efficiency
+
+Three read-only semantic sensors use decoded Modbus data, independently of whether
+source entities are enabled. All use `%`, state class `measurement`, and no
+device class, following the existing percentage sensors. None clamps results
+to 100%; mathematically valid values above 100% remain visible.
+
+**Inverter Efficiency / Wechselrichter-Wirkungsgrad** belongs to the inverter:
+
+```text
+effective DC input = PV DC + battery discharge DC - battery charge DC
+inverter efficiency = 100 * inverter AC output / effective DC input
+```
+
+Battery discharge adds DC input. Battery charging is subtracted because that
+energy goes into storage instead of DC-to-AC conversion. Only classified Model
+160 MPPT modules contribute PV power; aggregate inverter DC power is not used.
+The sensor requires Operating State `MPPT` (Model 103 `St` enum 4). On the tested
+GEN24, MPPT also occurs during battery-to-AC operation with approximately zero
+PV production. This is an observation, not a universal firmware guarantee.
+Instantaneous source readings may not be synchronized, so a result over 100%
+can reveal timing, resolution, or power-balance discrepancies.
+
+**Rectifier Efficiency / Gleichrichter-Wirkungsgrad** belongs to the inverter
+and describes the reverse, net AC-to-DC direction:
+
+```text
+dc_balance = PV DC + battery discharge DC - battery charge DC
+rectifier efficiency = 100 * (-dc_balance) / (-inverter AC power)
+```
+
+The calculation requires both `dc_balance < 0` and `inverter AC power < 0`,
+and Operating State `MPPT`. Zero AC power, zero DC balance, or disagreeing
+conversion directions make it unavailable. No minimum-power threshold is applied,
+and values above 100% remain visible to expose timing, scaling, or balance anomalies.
+It reuses the same already-polled Model 103 and Model 160 sources as Inverter
+Efficiency, with no additional Modbus reads. The two sensors remain direction-specific;
+Inverter Efficiency retains its existing formula and availability behavior.
+
+User-supplied GEN24 measurements during forced grid charging support this semantic
+calculation; they are empirical observations, not a universal vendor specification.
+For example, 507.00 W PV, 1000.30 W battery charge, zero discharge, and -538.30 W AC
+produce a DC balance of -493.30 W and approximately 91.64% efficiency. With zero PV,
+950.40 W charge and -1001.10 W AC, the result is approximately 94.94%. At low power,
+291.18 W PV, 300.08 W charge and -48.48 W AC yield approximately 18.36%.
+The observed transition of 306.44 W PV, 295.45 W charge, zero discharge, and
+-5.344 W AC is unavailable because the DC balance is positive (+10.99 W).
+
+**Battery Lifetime Efficiency / Speicher-Gesamtwirkungsgrad** belongs to storage:
+
+```text
+estimated stored energy = nominal capacity * SoC / 100
+lifetime efficiency = 100 * (discharged energy + stored energy) / charged energy
+```
+
+This is a cumulative lifetime round-trip estimate, **not instantaneous battery
+efficiency**. Charged energy that has not yet been discharged should not be counted
+as loss. Nominal capacity and SoC only estimate the remaining inventory; they do
+not measure actual usable stored energy directly. For 6453.44 kWh charged,
+6034.24 kWh discharged, 11 kWh nominal capacity and 68% SoC, the result is
+approximately 93.62015%.
+
+The calculation assumes that the Fronius/BYD cumulative charge/discharge counters
+have a meaningful common lifetime zero point. An unknown initially stored amount
+would introduce a constant energy offset whose relative influence decreases as
+throughput grows. No historical initial SoC or persistent baseline is invented.
+Results above 100% may reveal counter resets, inconsistent counters, unit or
+source-data problems, or a failure of the zero-point assumption.
+
+Sources and engineering units (all scale factors are applied by the decoder):
+
+| Quantity | SunSpec source | Decoded unit | Scale factor |
+| --- | --- | --- | --- |
+| PV power | Model 160 `module.DCW`, all classified MPPT modules | W | `DCW_SF` |
+| Battery charge/discharge power | Model 160 `module.DCW`, classified storage charge/discharge module respectively | W | `DCW_SF` |
+| Inverter AC output | Model 103 `W` | W | `W_SF` |
+| Operating State | Model 103 `St` | enum (`4` → `MPPT`) | none |
+| Lifetime charge/discharge energy | Model 160 `module.DCWH`, classified storage charge/discharge module respectively | Wh | `DCWH_SF` |
+| Battery SoC | Model 124 `ChaState` | percent (`% AhrRtg` in register metadata) | `ChaState_SF` |
+| Nominal battery capacity | **Model 120 `WHRtg`** | Wh | `WHRtg_SF` |
+
+Capacity really comes from Model 120, even though the existing diagnostic entity
+is associated with the inverter and the resulting lifetime sensor belongs to
+storage. Device placement does not determine SunSpec ownership. All energies are
+already normalized to Wh by decoding (`raw * 10^SF`), so no additional Wh/kWh
+conversion is performed. SoC is divided by 100 to obtain a fraction; the final
+ratio is multiplied by 100 to obtain percent.
+
+Sources must belong to the **same Modbus device ID**. Inverter and Rectifier Efficiency require
+one Model 103 and one Model 160; Battery Lifetime Efficiency requires one each of
+Models 120, 124, and 160. Duplicate required models or multiple classified charge
+or discharge modules are ambiguous and make the affected sensor unavailable.
+Unrelated device IDs are never combined; separate complete systems can calculate
+independently. No meter or Solar API is required.
+
+Each calculation requires exactly one classified charge and discharge module,
+including valid explicit zero readings during PV-only operation. Missing modules
+are not inferred as zero. Inverter and Rectifier Efficiency also require at least one MPPT
+and valid power from every classified MPPT (stricter than the existing PV Power
+sensor's sum of available values). Unknown modules do not contribute.
+
+Missing, offline, nonnumeric, NaN, or infinite required numeric sources
+make the affected sensor unavailable. Negative DC source values are invalid; negative
+AC power is accepted only by Rectifier Efficiency. For Inverter Efficiency, effective
+DC input must be positive and AC output may be zero. For Battery Lifetime Efficiency,
+charged lifetime energy and nominal capacity must be positive
+and SoC must lie within 0–100%. Non-finite calculated results are unavailable.
+Discovery and recovery use the existing semantic-entity lifecycle.
+
+The Rectifier Efficiency key is `rectifier_efficiency`, its suggested object ID is
+`inverter_rectifier_efficiency`, and its unique ID is
+`{entry_id}_device{device_id}_inverter_hlc_rectifier_efficiency`.
+
+Other keys are `inverter_efficiency` and `battery_lifetime_efficiency`. Suggested object
+IDs follow the existing role-prefix convention: `inverter_inverter_efficiency`
+and `storage_battery_lifetime_efficiency`. Unique IDs are
+`{entry_id}_device{device_id}_{role}_hlc_{key}`, with roles `inverter` and `storage`
+respectively. Existing sensors, defaults, identities, and calculations are unchanged.
 
 ## Optional local Fronius Solar API
 

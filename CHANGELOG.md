@@ -6,6 +6,30 @@ available in Git history and GitHub releases.
 
 ## [Unreleased]
 
+## [v1.1.0] - 2026-09-17
+
+### Added
+
+- Nine semantic sensors: PV Power, Grid Import Power, Grid Export Power,
+  Consumption Power, Autarky, Self Consumption, Inverter Efficiency,
+  Rectifier Efficiency, and Battery Lifetime Efficiency.
+- Separate conversion efficiencies for DC-to-AC and AC-to-DC operation;
+  incompatible conversion directions remain unavailable. Battery Lifetime
+  Efficiency estimates cumulative round-trip efficiency including stored energy.
+
+### Reliability
+
+- Self Consumption reports 100% with zero or negative inverter AC power and
+  no grid export, including forced grid charging. Positive-AC behavior is preserved.
+- Defensive numeric validation makes malformed values and calculation overflow
+  unavailable instead of exposing invalid readings or errors.
+- Ambiguous Model 160 PV and Model 203 meter sources are rejected; missing
+  individual MPPT readings still allow partial PV totals within one valid source.
+- Regression coverage verifies stable sensor identities through persisted-topology
+  offline startup, independent device outages, and recovery in both conversion directions.
+- The v1.1.0 functionality has been successfully runtime-tested on a real
+  Fronius GEN24 installation.
+
 ## [v1.0.1] - 2026-09-16
 
 ### Changed

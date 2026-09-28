@@ -27,6 +27,25 @@
       "already_configured": "Dieser Modbus-Endpunkt ist bereits konfiguriert."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Abfrageintervalle",
+        "data": {
+          "fast_scan_interval": "Schnelles Abfrageintervall (Sekunden)",
+          "slow_scan_interval": "Langsames Abfrageintervall (Sekunden)"
+        },
+        "data_description": {
+          "fast_scan_interval": "Dynamische elektrische Messwerte, 2–30 Sekunden. Ein kürzeres Intervall erzwingt keine schnellere Erzeugung neuer Messwerte im Gerät.",
+          "slow_scan_interval": "Langsam veränderliche/statische Messwerte, 10–300 Sekunden; mindestens so lang wie das schnelle Intervall."
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Eine ganze Zahl im erlaubten Bereich eingeben.",
+      "slow_less_than_fast": "Das langsame Intervall muss mindestens so lang wie das schnelle Intervall sein."
+    }
+  },
   "device": {
     "inverter_device": {
       "name": "Wechselrichter"

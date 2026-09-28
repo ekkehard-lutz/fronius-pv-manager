@@ -6,10 +6,28 @@ from dataclasses import dataclass
 
 import voluptuous as vol
 from homeassistant import data_entry_flow
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import callback
 
-from .const import CONF_DEVICE_IDS, DEFAULT_PORT, DOMAIN
+from .const import (
+    CONF_DEVICE_IDS,
+    CONF_FAST_SCAN_INTERVAL,
+    CONF_SLOW_SCAN_INTERVAL,
+    DEFAULT_FAST_SCAN_INTERVAL,
+    DEFAULT_PORT,
+    DEFAULT_SLOW_SCAN_INTERVAL,
+    DOMAIN,
+    MAX_FAST_SCAN_INTERVAL,
+    MAX_SLOW_SCAN_INTERVAL,
+    MIN_FAST_SCAN_INTERVAL,
+    MIN_SLOW_SCAN_INTERVAL,
+)
 from .model_decoder import decode_model
 from .register_maps import get_model_definition
 from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
@@ -170,6 +188,12 @@ class FroniusPVManagerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Expose polling configuration for new and existing installations."""
+        return FroniusPVManagerOptionsFlow()
+
     def _abort_if_endpoint_configured(self, host: str, port: int) -> None:
         """Abort on matching stored endpoint data regardless of permanent ID."""
         endpoint = _endpoint_unique_id(host, port)
@@ -244,5 +268,68 @@ class FroniusPVManagerConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=_user_schema(user_input),
+            errors=errors,
+        )
+
+
+class FroniusPVManagerOptionsFlow(OptionsFlow):
+    """Configure selective polling without changing endpoint/entity identities."""
+
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
+        """Validate intervals and store them in config entry options."""
+        values = dict(self.config_entry.options)
+        errors = {}
+        if user_input is not None:
+            values.update(user_input)
+            for key, minimum, maximum in (
+                (
+                    CONF_FAST_SCAN_INTERVAL,
+                    MIN_FAST_SCAN_INTERVAL,
+                    MAX_FAST_SCAN_INTERVAL,
+                ),
+                (
+                    CONF_SLOW_SCAN_INTERVAL,
+                    MIN_SLOW_SCAN_INTERVAL,
+                    MAX_SLOW_SCAN_INTERVAL,
+                ),
+            ):
+                value = values.get(key)
+                if type(value) is not int or not minimum <= value <= maximum:
+                    errors[key] = "invalid_interval"
+            if (
+                not errors
+                and values[CONF_SLOW_SCAN_INTERVAL] < values[CONF_FAST_SCAN_INTERVAL]
+            ):
+                errors[CONF_SLOW_SCAN_INTERVAL] = "slow_less_than_fast"
+            if not errors:
+                return self.async_create_entry(title="", data=values)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_FAST_SCAN_INTERVAL,
+                        default=values.get(
+                            CONF_FAST_SCAN_INTERVAL, DEFAULT_FAST_SCAN_INTERVAL
+                        ),
+                    ): vol.All(
+                        int,
+                        vol.Range(
+                            min=MIN_FAST_SCAN_INTERVAL, max=MAX_FAST_SCAN_INTERVAL
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_SLOW_SCAN_INTERVAL,
+                        default=values.get(
+                            CONF_SLOW_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL
+                        ),
+                    ): vol.All(
+                        int,
+                        vol.Range(
+                            min=MIN_SLOW_SCAN_INTERVAL, max=MAX_SLOW_SCAN_INTERVAL
+                        ),
+                    ),
+                }
+            ),
             errors=errors,
         )

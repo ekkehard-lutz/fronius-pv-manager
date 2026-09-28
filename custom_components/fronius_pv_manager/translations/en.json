@@ -27,6 +27,25 @@
       "already_configured": "This Modbus endpoint is already configured."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling intervals",
+        "data": {
+          "fast_scan_interval": "Fast polling interval (seconds)",
+          "slow_scan_interval": "Slow polling interval (seconds)"
+        },
+        "data_description": {
+          "fast_scan_interval": "Dynamic electrical measurements, 2–30 seconds. A shorter interval cannot force the device to produce new measurements faster.",
+          "slow_scan_interval": "Slowly changing/static measurements, 10–300 seconds; at least as long as the fast interval."
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Enter a whole number within the allowed range.",
+      "slow_less_than_fast": "The slow interval must be at least as long as the fast interval."
+    }
+  },
   "device": {
     "inverter_device": {
       "name": "Inverter"

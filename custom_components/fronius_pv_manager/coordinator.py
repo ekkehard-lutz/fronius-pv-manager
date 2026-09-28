@@ -13,7 +13,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_FAST_SCAN_INTERVAL,
+    CONF_SLOW_SCAN_INTERVAL,
+    DEFAULT_FAST_SCAN_INTERVAL,
+    DEFAULT_SLOW_SCAN_INTERVAL,
+    DOMAIN,
+    FAST_MODEL_IDS,
+)
 from .model_decoder import DecodedModel, decode_model
 from .models import DiscoveredModel, SunSpecModelDefinition
 from .register_maps import get_model_definition
@@ -22,6 +29,7 @@ from .storage_control import StorageControl
 from .sunspec import SunSpecDiscovery, SunSpecDiscoveryError
 from .topology import CONF_TOPOLOGY, model_topology, restore_model, validate_topology
 from .transport import (
+    MAX_HOLDING_REGISTERS_PER_READ,
     ModbusDeviceTransport,
     ModbusTransportError,
     read_holding_registers_chunked,
@@ -83,12 +91,20 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         transports: Mapping[int, ModbusDeviceTransport],
         write_policies: Mapping[tuple[int, str], WritePolicy] | None = None,
     ) -> None:
+        self.fast_interval = entry.options.get(
+            CONF_FAST_SCAN_INTERVAL, DEFAULT_FAST_SCAN_INTERVAL
+        )
+        self.slow_interval = entry.options.get(
+            CONF_SLOW_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL
+        )
+        self._slow_deadlines: dict[int, float] = {}
+        self._force_slow = False
         super().__init__(
             hass,
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=self.fast_interval),
         )
         if not transports:
             raise ValueError("at least one Modbus device transport is required")
@@ -218,8 +234,13 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
             self._discover_device(device_id, transport)
         return dict(self.discovered_models_by_device)
 
+    async def async_request_refresh(self) -> None:
+        """Include control/settings readback in explicit (including write) refreshes."""
+        self._force_slow = True
+        await super().async_request_refresh()
+
     async def _async_update_data(self) -> FroniusPVCoordinatorData:
-        """Poll and decode all supported models without blocking the event loop."""
+        """Poll due whole models and publish one coherent snapshot."""
         task = asyncio.current_task()
         self._update_tasks.add(task)
         try:
@@ -273,14 +294,54 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         return FroniusPVCoordinatorData(tuple(devices))
 
     def _poll_devices(self) -> FroniusPVCoordinatorData:
-        """Poll every device without retaining stale data after partial failure."""
+        """Read FAST each refresh; retain untouched SLOW snapshots by identity."""
         devices = []
+        force_slow = self._force_slow
+        self._force_slow = False
         for device_id, transport in self.transports.items():
+            started = time.monotonic()
             discovered = self.live_models(device_id)
+            rediscover = not discovered
+            deadline = self._slow_deadlines.get(device_id, started)
+            slow_due = force_slow or rediscover or started >= deadline
+            previous_device = next(
+                (
+                    device
+                    for device in self.data.devices
+                    if device.device_id == device_id
+                ),
+                None,
+            )
+            cached = {
+                model.discovered: model
+                for model in (previous_device.decoded_models if previous_device else ())
+            }
+            selected = ()
+            decoded = ()
+            success = False
             try:
-                if not discovered:
+                if rediscover:
                     discovered = self._discover_device(device_id, transport)
-                decoded = self._poll_device(transport, discovered)
+                selected = tuple(
+                    model
+                    for model in discovered
+                    if get_model_definition(model.model_id) is not None
+                    and (
+                        slow_due
+                        or model.model_id in FAST_MODEL_IDS
+                        or model not in cached
+                    )
+                )
+                refreshed = {
+                    model.discovered: model
+                    for model in self._poll_device(transport, selected)
+                }
+                decoded = tuple(
+                    refreshed[model] if model in refreshed else cached[model]
+                    for model in discovered
+                    if model in refreshed or model in cached
+                )
+                success = all(model.available for model in decoded)
             except ModbusTransportError, SunSpecDiscoveryError:
                 self.discovered_models_by_device.pop(device_id, None)
                 _LOGGER.debug(
@@ -295,7 +356,13 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                         device_id,
                         discovered,
                         decoded,
-                        available=any(model.available for model in decoded),
+                        # Cached identity/settings cannot keep an offline device
+                        # available when every attempted dynamic read failed.
+                        available=(
+                            any(model.available for model in refreshed.values())
+                            if refreshed
+                            else bool(previous_device and previous_device.available)
+                        ),
                     )
                 )
                 if any(not model.available for model in decoded):
@@ -323,6 +390,34 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                             )
                         )
                 self.topology = {**self.topology, str(device_id): records}
+            finally:
+                # Anchor deadlines to elapsed time, not a modulo cycle count or
+                # the end of a read. Missed periods are skipped, never replayed.
+                if started >= deadline:
+                    self._slow_deadlines[device_id] = (
+                        deadline
+                        + (int((started - deadline) // self.slow_interval) + 1)
+                        * self.slow_interval
+                    )
+                _LOGGER.debug(
+                    "Poll %s unit=%s models=%s planned_reads=%s planned_registers=%s "
+                    "discovery=%s elapsed=%.3fs success=%s",
+                    "FAST+SLOW" if slow_due else "FAST",
+                    device_id,
+                    [
+                        (model.model_id, model.base_address, model.length)
+                        for model in selected
+                    ],
+                    sum(
+                        (model.length + MAX_HOLDING_REGISTERS_PER_READ - 1)
+                        // MAX_HOLDING_REGISTERS_PER_READ
+                        for model in selected
+                    ),
+                    sum(model.length for model in selected),
+                    rediscover,
+                    time.monotonic() - started,
+                    success,
+                )
         return FroniusPVCoordinatorData(tuple(devices))
 
     @staticmethod

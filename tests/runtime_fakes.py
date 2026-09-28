@@ -113,10 +113,17 @@ class FakeEntry:
         self, data: dict[str, object], *, entry_id: str = "test-entry"
     ) -> None:
         self.data = data
+        self.options = {}
+        self.update_listeners = []
         self.entry_id = entry_id
         self.pref_disable_polling = False
         self.state = ConfigEntryState.SETUP_IN_PROGRESS
         self.unload_callbacks: list[Callable] = []
+
+    def add_update_listener(self, listener):
+        """Register an options/data listener as ConfigEntry does."""
+        self.update_listeners.append(listener)
+        return lambda: self.update_listeners.remove(listener)
 
     def async_on_unload(self, callback):
         """Record a coordinator shutdown callback."""

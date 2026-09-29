@@ -83,7 +83,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
         await coordinator.async_stop()
         del entry.runtime_data
         raise
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_options_updated(
+    hass: HomeAssistant, entry: FroniusPVConfigEntry
+) -> None:
+    """Reload only for interval changes, not persisted discovery updates."""
+    from .const import (
+        CONF_FAST_SCAN_INTERVAL,
+        CONF_SLOW_SCAN_INTERVAL,
+        DEFAULT_FAST_SCAN_INTERVAL,
+        DEFAULT_SLOW_SCAN_INTERVAL,
+    )
+
+    coordinator = entry.runtime_data
+    if (
+        entry.options.get(CONF_FAST_SCAN_INTERVAL, DEFAULT_FAST_SCAN_INTERVAL)
+        != coordinator.fast_interval
+        or entry.options.get(CONF_SLOW_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL)
+        != coordinator.slow_interval
+    ):
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) -> bool:

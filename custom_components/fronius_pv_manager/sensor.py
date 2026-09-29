@@ -26,12 +26,12 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import FroniusPVConfigEntry
 from .const import DOMAIN
 from .coordinator import FroniusPVCoordinator
 from .entity_naming import suggested_object_id
+from .model_entity import ModelCoordinatorEntity
 from .models import (
     EntityCategoryHint,
     EntityDefinition,
@@ -228,7 +228,7 @@ def _sensor_sources(coordinator: FroniusPVCoordinator) -> tuple[SensorSource, ..
     return tuple(sources)
 
 
-class FroniusPVSensor(CoordinatorEntity[FroniusPVCoordinator], SensorEntity):
+class FroniusPVSensor(ModelCoordinatorEntity, SensorEntity):
     """Expose one decoded catalog value from the latest coordinator data."""
 
     _attr_has_entity_name = True

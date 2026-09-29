@@ -13,6 +13,30 @@ tariff optimization, scheduling,
 and continuous strategy belong to a future Energy Manager. It does not
 continuously reassert targets.
 
+## Configurable FAST/SLOW polling
+
+Dynamic electrical measurements use a **5-second FAST** interval; slowly changing
+and static model groups use a **30-second SLOW** interval. Change both under the
+integration's **Configure** options: FAST **2–30 seconds**, SLOW **10–300 seconds**,
+with **SLOW ≥ FAST**. Existing entries use 5/30 automatically. Options changes
+reload the runtime while preserving entity IDs.
+
+One coordinator reads whole models sequentially: **103, 124, 160 and 203 are FAST**;
+**1, 120, 121, 122 and 123 are SLOW**. This keeps contiguous electrical readings and
+scale factors together without reading all static data every five seconds. For
+the example inverter/meter topology, FAST-only costs **5 requests / 267 registers**,
+and FAST+SLOW **11 / 521**. Nominal average load including discovery is **1.247
+requests/s** (74.8/min). Fronius recommends sequential requests and a timeout of
+at least one second; the existing shared lock and three-second timeout remain.
+
+Polling frequency and physical measurement publication frequency are different.
+Shorter polling cannot force the inverter, battery or Smart Meter to generate new
+measurements faster; their internal update rates are not established here.
+Unchanged FAST readings advance HA `last_reported`, while `last_updated` requires
+a value/attribute change and `last_changed` a value change. See the
+[polling design, exact model/cost tables, timestamp limitations and hardware test
+procedure](docs/polling.md) for timing, recovery and diagnostics details.
+
 ## For Home Assistant users
 
 ### Features
@@ -126,9 +150,9 @@ No measurements are persisted in this topology cache. Serial-based unique IDs
 and existing entity/device identifiers remain unchanged.
 
 An existing entry loads its runtime and platforms even when every unit is
-offline. The initial refresh and subsequent 30-second polls handle failures per
-unit and per model. Only entities whose current model cannot be read or decoded
-become unavailable; stale measurements are discarded. Failed discovery and
+offline. The initial refresh reads all supported models. Subsequent selective
+FAST/SLOW polls handle failures per unit and per model. Failed measurements become
+unavailable; valid SLOW snapshots remain cached between their scheduled reads. Failed discovery and
 reads are attempted again on normal updates, and recovery needs no reload.
 Storage and battery availability follows the inverter's storage/module models,
 without introducing a separate battery connection.

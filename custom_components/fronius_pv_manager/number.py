@@ -8,7 +8,6 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import FroniusPVConfigEntry
 from .control_entity import (
@@ -18,6 +17,7 @@ from .control_entity import (
     suggested_control_object_id,
 )
 from .coordinator import FroniusPVCoordinator
+from .model_entity import ModelCoordinatorEntity
 from .models import EntityCategoryHint, EntityPlatform
 from .sensor import _device_info
 from .storage_entity import StorageEntity, setup_storage_entities
@@ -61,7 +61,7 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
-class FroniusPVNumber(CoordinatorEntity[FroniusPVCoordinator], NumberEntity):
+class FroniusPVNumber(ModelCoordinatorEntity, NumberEntity):
     """Expose one cataloged numeric register without optimistic state."""
 
     _attr_has_entity_name = True

@@ -55,6 +55,7 @@ class ModbusTcpEndpointTransport:
             reconnect_delay=0,
         )
         self._connected = False
+        self._has_connected = False
         self.generation = 0
         self._diagnostics = None
 
@@ -90,14 +91,14 @@ class ModbusTcpEndpointTransport:
     def diagnostic_scope(self):
         return ("endpoint", id(self))
 
-    def _event(self, event, **fields):
+    def _event(self, event, *, interval=REPEAT_SECONDS, **fields):
         if self._diagnostics is not None:
             self._diagnostics.event(
                 1,
                 "modbus",
                 event,
                 scope=self.diagnostic_scope,
-                interval=REPEAT_SECONDS,
+                interval=interval,
                 connection_generation=self.generation,
                 **fields,
             )
@@ -157,8 +158,12 @@ class ModbusTcpEndpointTransport:
             )
         self._connected = True
         self.generation += 1
-        if recovering:
-            self._event("connection_established", result="connected")
+        reason = "reconnect" if self._has_connected else "initial"
+        self._has_connected = True
+        # Each successful physical session is distinct, even within 300 seconds.
+        self._event(
+            "connection_established", interval=0, reason=reason, result="connected"
+        )
 
     def close(self) -> None:
         """Close the TCP connection once; repeated closure is harmless."""

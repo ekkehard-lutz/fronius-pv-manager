@@ -22,6 +22,7 @@ from custom_components.fronius_pv_manager.diagnostic_logging import (
 )
 from custom_components.fronius_pv_manager.sensor import SolarEfficiencySensor
 from custom_components.fronius_pv_manager.transport import (
+    ModbusConnectionError,
     ModbusTcpEndpointTransport,
 )
 from tests.runtime_fakes import FakeEntry, FakeHass, model_chain
@@ -100,6 +101,160 @@ def endpoint_runtime(monkeypatch, clock, *, models=((103, 50),), units=(1,), lev
     )
     coordinator.diagnostics.clock = lambda: clock.now
     return coordinator, endpoint, client, bases
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("level", [0, 1, 2, 3])
+@pytest.mark.parametrize("units", [(1,), (1, 200)])
+async def test_initial_connection_during_entry_setup(
+    level, units, monkeypatch, clock, caplog
+):
+    initial, endpoint, client, _ = endpoint_runtime(
+        monkeypatch, clock, units=units, level=level
+    )
+    entry, hass = initial.entry, initial.hass
+    entry.data = {"host": "192.0.2.1", "device_ids": list(units)}
+    monkeypatch.setattr(
+        integration, "ModbusTcpEndpointTransport", lambda *a, **kw: endpoint
+    )
+    assert await integration.async_setup_entry(hass, entry)
+    try:
+        assert entry.runtime_data.last_update_success
+        for _ in range(3):
+            endpoint.connect()
+        assert client.connect_calls == 1
+        assert endpoint.generation == 1
+        events = records(caplog, "connection_established")
+        assert events == (
+            []
+            if level == 0
+            else [
+                {
+                    "event": "connection_established",
+                    "entry_id": entry.entry_id,
+                    "connection_generation": 1,
+                    "reason": "initial",
+                    "result": "connected",
+                    "severity": "WARNING",
+                    "subsystem": "modbus",
+                }
+            ]
+        )
+        assert not records(caplog, "endpoint_recovered")
+        assert not records(caplog, "communication_recovered")
+    finally:
+        assert await integration.async_unload_entry(hass, entry)
+
+
+@pytest.mark.parametrize("reconnect", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_failed_connects_do_not_report_success(
+    reconnect, raises, monkeypatch, clock, caplog
+):
+    _, endpoint, client, _ = endpoint_runtime(monkeypatch, clock)
+    expected_generation = 0
+    if reconnect:
+        endpoint.connect()
+        endpoint.close()
+        expected_generation = 2
+        caplog.clear()
+    successful_connect = client.connect
+    failed_connect = (
+        Mock(side_effect=TimeoutError()) if raises else Mock(return_value=False)
+    )
+    monkeypatch.setattr(client, "connect", failed_connect)
+    for now in (5, 10, 15):
+        clock.now = now
+        with pytest.raises(ModbusConnectionError):
+            endpoint.connect()
+        expected_generation += 1
+        assert endpoint.generation == expected_generation
+        assert not endpoint._connected
+        assert not records(caplog, "connection_established")
+    monkeypatch.setattr(client, "connect", successful_connect)
+    clock.now = 20
+    endpoint.connect()
+    endpoint.connect()
+    events = records(caplog, "connection_established")
+    assert len(events) == 1
+    assert events[0]["reason"] == ("reconnect" if reconnect else "initial")
+    assert events[0]["connection_generation"] == expected_generation + 1
+    assert events[0]["result"] == "connected"
+
+
+@pytest.mark.asyncio
+async def test_each_reconnection_within_300_seconds_preserves_recovery(
+    monkeypatch, clock, caplog
+):
+    coordinator, endpoint, client, _ = endpoint_runtime(monkeypatch, clock)
+    await coordinator.async_refresh()
+    for now in (5, 15):
+        client.connected = False
+        clock.now = now
+        await coordinator.async_refresh()
+        assert coordinator.write_authority(1) is None
+        clock.now = now + 5
+        await coordinator.async_refresh()
+        assert coordinator.write_authority(1) is not None
+    events = records(caplog, "connection_established")
+    assert [r["reason"] for r in events] == ["initial", "reconnect", "reconnect"]
+    assert [r["connection_generation"] for r in events] == [1, 4, 7]
+    assert all(r["entry_id"] == coordinator.entry.entry_id for r in events)
+    assert client.connect_calls == 3
+    assert endpoint.generation == 7
+    for event in (
+        "connection_lost",
+        "session_reset",
+        "discovery_recovered",
+        "communication_recovered",
+        "endpoint_recovered",
+    ):
+        assert len(records(caplog, event)) == 2
+
+
+@pytest.mark.parametrize("level", [0, 1, 2, 3])
+def test_reconnect_without_active_failure_episode(level, monkeypatch, clock, caplog):
+    coordinator, endpoint, client, _ = endpoint_runtime(monkeypatch, clock, level=level)
+    endpoint.connect()
+    for now in (5, 10):
+        clock.now = now
+        endpoint.close()
+        assert not coordinator.diagnostics.active(endpoint.diagnostic_scope)
+        endpoint.connect()
+    events = records(caplog, "connection_established")
+    if level == 0:
+        assert not events
+        assert client.connect_calls == 3
+        return
+    assert [r["reason"] for r in events] == ["initial", "reconnect", "reconnect"]
+    assert [r["connection_generation"] for r in events] == [1, 3, 5]
+    assert client.connect_calls == 3
+
+
+@pytest.mark.asyncio
+async def test_live_enable_does_not_replay_connection(monkeypatch, clock, caplog):
+    coordinator, endpoint, client, _ = endpoint_runtime(monkeypatch, clock, level=0)
+    await coordinator.async_refresh()
+    entry, hass = coordinator.entry, coordinator.hass
+    entry.runtime_data = coordinator
+    hass.config_entries.async_reload = AsyncMock()
+    entry.options = {"diagnostic_level": 1}
+    await integration._async_options_updated(hass, entry)
+    clock.now = 5
+    await coordinator.async_refresh()
+    endpoint.connect()
+    assert not records(caplog, "connection_established")
+    assert client.connect_calls == 1
+    client.connected = False
+    clock.now = 10
+    await coordinator.async_refresh()
+    clock.now = 15
+    await coordinator.async_refresh()
+    events = records(caplog, "connection_established")
+    assert len(events) == 1
+    assert events[0]["reason"] == "reconnect"
+    assert events[0]["connection_generation"] == 4
+    hass.config_entries.async_reload.assert_not_called()
 
 
 @pytest.mark.parametrize("level", [0, 1, 2, 3])
@@ -197,7 +352,9 @@ async def test_timeout_episode_dedup_recovery_and_new_episode(
     assert records(caplog, "communication_failure")[0]["reason"] == "timeout"
     assert coordinator.write_authority(1) is None
     # Connection is genuine, but discovery has not recovered yet.
-    assert records(caplog, "connection_established")
+    connections = records(caplog, "connection_established")
+    assert len(connections) == 3
+    assert all(r["reason"] == "reconnect" for r in connections)
     assert not records(caplog, "discovery_recovered")
     client.errors.clear()
     clock.now = 25
@@ -323,8 +480,13 @@ async def test_connection_loss_and_only_actual_reset(monkeypatch, clock, caplog)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("level", [0, 1, 2, 3])
-async def test_healthy_polling_and_scheduled_renewal(level, monkeypatch, clock, caplog):
-    coordinator, _, client, _ = endpoint_runtime(monkeypatch, clock, level=level)
+@pytest.mark.parametrize("units", [(1,), (1, 200)])
+async def test_healthy_polling_and_scheduled_renewal(
+    level, units, monkeypatch, clock, caplog
+):
+    coordinator, _, client, _ = endpoint_runtime(
+        monkeypatch, clock, units=units, level=level
+    )
     for now in range(0, 306, 5):
         clock.now = now
         await coordinator.async_refresh()
@@ -338,14 +500,21 @@ async def test_healthy_polling_and_scheduled_renewal(level, monkeypatch, clock, 
         "communication_recovered",
     }
     assert not any(r["event"] in forbidden for r in events)
-    if level < 2:
+    connections = records(caplog, "connection_established")
+    assert len(connections) == (0 if level == 0 else 1)
+    if connections:
+        assert connections[0]["reason"] == "initial"
+    assert client.connect_calls == 1
+    if level == 0:
         assert not events
+    if level == 1:
+        assert events == connections
     if level == 3:
-        assert len(records(caplog, "poll_summary")) == 6
-        assert len(records(caplog, "discovery_completed")) == 2
+        assert len(records(caplog, "poll_summary")) == 6 * len(units)
+        assert len(records(caplog, "discovery_completed")) == 2 * len(units)
         assert all(r["severity"] == "WARNING" for r in events)
-    # 62 payload reads and two 6-register discovery sequences (3 requests each).
-    assert len(client.read_calls) == 68
+    # Per unit: 62 payload reads and two discovery sequences (3 requests each).
+    assert len(client.read_calls) == 68 * len(units)
 
 
 @pytest.mark.asyncio

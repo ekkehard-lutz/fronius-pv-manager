@@ -16,7 +16,7 @@ Partial edits preserve unrelated options and the effective FAST/SLOW defaults.
 | Level | Selection | Python severity for new diagnostic events |
 | --- | --- | --- |
 | 0 | Unexpected runtime, lifecycle, protocol or unrecoverable control errors | ERROR |
-| 1 | Also transport communication and validated recovery | WARNING |
+| 1 | Also initial TCP connection, transport communication and validated recovery | WARNING |
 | 2 | Also actual live transitions, explicit control results, remote-lease lifecycle | WARNING |
 | 3 | Also bounded model/discovery/polling/preflight/readback detail | WARNING |
 
@@ -62,7 +62,7 @@ upstream exception text and upstream frame dumps are not logged by this emitter.
 | `connection_lost` | 1 | WARNING | Connected transport observes closed underlying client | Endpoint and reason, 300 s |
 | `session_reset` | 1 | WARNING | Transport actually resets/discards its client session | Endpoint and reset reason, 300 s |
 | `connection_attempt` | 1 | WARNING | Actual connection attempt during an endpoint outage | Endpoint, 300 s |
-| `connection_established` | 1 | WARNING | That reconnect genuinely succeeds | Endpoint, 300 s |
+| `connection_established` | 1 | WARNING | Initial TCP connection or a later reconnection genuinely succeeds; `reason="initial"` or `reason="reconnect"` | Once per successful physical TCP session, shared across device IDs; no time-based suppression |
 | `rediscovery_started` | 1 | WARNING | Discovery starts because of a device/shared-endpoint failure episode | Device and recovery reason, 300 s |
 | `discovery_failed` | 1 | WARNING | Discovery transport failure or invalid SunSpec chain | Device and reason, 300 s |
 | `discovery_recovered` | 1 | WARNING | Error-triggered discovery returns a validated model chain | Device, once per episode/300 s if payloads keep failing |
@@ -114,14 +114,34 @@ per episode; excess unusual signatures share a bounded overflow bucket. Successf
 recovery clears episode suppression, so a later independent outage warns again.
 No timer performs summaries: a summary needs a subsequent real occurrence.
 
-A physical endpoint emits endpoint reset/connect warnings once per reason, shared
-across units. Device read/discovery failures include their own device ID. Fake or
-other transports that do not report an actual reset do not produce reset warnings.
+A physical endpoint deduplicates reset/failure/attempt warnings across units.
+Successful connections instead emit `connection_established` exactly once per
+physical TCP session, even if several device IDs (such as 1 and 200) share it.
+Device read/discovery failures include their own device ID. Fake or other transports that do not report an actual reset do not produce reset warnings.
 Ordinary close/unload is not reported as a communication failure.
 
-Normal initial discovery, approximately 300-second scheduled renewal and healthy
-FAST/SLOW polling produce no level 1 warnings. Level 3 summaries are not a
-per-cycle packet capture: they show the selected cycle and planned request/register
+The first successful physical TCP connection logs `connection_established` at
+level 1 with `reason="initial"`, `result="connected"`, `entry_id` and the current
+`connection_generation`. Failed initial attempts do not count as a successful
+connection; the eventual first success still has `reason="initial"`. Each later
+successful physical session has `reason="reconnect"`. Generations retain their
+existing semantics: failures and session resets can also advance them, so they
+are not simply a successful-connection counter. Failed connection attempts never
+emit this success event. Successful sessions bypass the 300-second suppression
+window, so a genuine reconnection soon after startup or another reconnect remains
+visible. Repeated `connect()` calls while connected produce no extra event.
+
+Level 0 remains silent for successful connections. Successful-session history is
+tracked independently of the selected diagnostic level: enabling level 1 on an
+already connected endpoint neither replays nor invents an initial connection,
+and its next genuine reconnect has `reason="reconnect"`. No reload is needed.
+This event confirms TCP establishment only; it does not confirm SunSpec discovery,
+valid measurements, communication recovery or recovered write authority. Those
+remain separate validated events.
+
+Initial SunSpec discovery, approximately 300-second scheduled renewal and healthy
+FAST/SLOW polling produce no additional level 1 connection messages. Level 3
+summaries are not a per-cycle packet capture: they show the selected cycle and planned request/register
 counts, with actual elapsed duration, at most once per minute per unit. Errors can
 stop chunking early. No unchanged register values or payloads are dumped. SLOW
 polling and informative median publication remain on their previous deadlines.
@@ -166,9 +186,11 @@ Example messages (illustrative; timestamps are provided by Python/HA, not sensor
 attributes):
 
 ```text
+FPMGR subsystem=modbus {"connection_generation": 1, "entry_id": "example", "event": "connection_established", "reason": "initial", "result": "connected"}
 FPMGR subsystem=modbus {"connection_generation": 1, "device_id": 1, "entry_id": "example", "event": "communication_failure", "reason": "timeout", "suppressed": 0}
 FPMGR subsystem=modbus {"connection_generation": 2, "entry_id": "example", "event": "session_reset", "reason": "timeout", "suppressed": 0}
 FPMGR subsystem=sunspec {"device_id": 1, "entry_id": "example", "event": "rediscovery_started", "reason": "communication_recovery", "suppressed": 0}
+FPMGR subsystem=modbus {"connection_generation": 3, "entry_id": "example", "event": "connection_established", "reason": "reconnect", "result": "connected"}
 FPMGR subsystem=modbus {"connection_generation": 3, "device_id": 1, "discovery_revision": 2, "entry_id": "example", "event": "communication_recovered", "result": "recovered"}
 ```
 
@@ -187,8 +209,8 @@ The complete existing measurement, polling, recovery, storage/remote control and
 low-level-write suites are included. All test writes are fake; no physical writes,
 Home Assistant deployment, version bump, tag, release or merge is performed.
 
-Final result: **1475 tests passed**, including all 1424 baseline tests and 51 new
-parameterized diagnostic cases. One existing upstream aiohttp/Home Assistant
+Original four-level diagnostics result: **1475 tests passed**, including all 1424
+baseline tests and 51 new parameterized diagnostic cases. One existing upstream aiohttp/Home Assistant
 `HomeAssistantApplication` inheritance DeprecationWarning remains. Ruff lint,
 formatting of all 12 changed Python files and `git diff --check` pass. The repository-wide
 format check already reports **45 pre-existing files** at the required baseline;
@@ -202,6 +224,15 @@ Changed files: `README.md`, `docs/polling.md`, this event inventory;
 storage_control,write_runtime,diagnostic_logging}.py`; `strings.json` and German/
 English translations; `tests/test_polling.py`, `test_polling_options.py`,
 `test_storage_remote.py` and new `test_diagnostic_logging.py`.
+
+The initial TCP connection follow-up adds 22 parameterized regression cases:
+HA entry startup at levels 0–3 with single/shared endpoints, repeated connects,
+healthy polling/scheduled discovery, failed initial and later attempts (false
+return or exception), multiple successful reconnects within 300 seconds,
+reconnects while discovery still fails, unchanged recovery events/generations,
+and live opt-in without replay. The complete follow-up suite passes **1497 tests**,
+with the same upstream deprecation warning; repository-wide Ruff lint, formatting
+checks for the two changed Python files and `git diff --check` pass.
 
 Hardware validation remains outstanding: verify timeout/reconnect classifications
 and practical log volume on actual GEN24/meter firmware with multiple unit IDs.

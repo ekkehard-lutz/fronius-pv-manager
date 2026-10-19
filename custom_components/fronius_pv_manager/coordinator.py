@@ -21,6 +21,12 @@ from .const import (
     DOMAIN,
     FAST_MODEL_IDS,
 )
+from .diagnostic_logging import (
+    SUMMARY_SECONDS,
+    Diagnostics,
+    diagnostic_observer,
+    error_reason,
+)
 from .model_decoder import DecodedModel, decode_model
 from .models import DiscoveredModel, SunSpecModelDefinition
 from .register_maps import get_model_definition
@@ -116,6 +122,11 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         self.transports = MappingProxyType(dict(transports))
         self.discovered_models_by_device: dict[int, tuple[DiscoveredModel, ...]] = {}
         self.entry = entry
+        self.diagnostics = Diagnostics(lambda: entry.options, entry_id=entry.entry_id)
+        for transport in self.transports.values():
+            owner = getattr(transport, "endpoint", transport)
+            if hasattr(owner, "set_diagnostics"):
+                owner.set_diagnostics(self.diagnostics)
         self.solar_api = SolarAPI(hass, entry.data.get("host", "localhost"))
         self.solar_state = SolarState()
         # Persisted structure is for entity construction, never write authority.
@@ -284,13 +295,26 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     def write_authority(self, device_id):
         """Identify the live session and discovery that authorize physical plans."""
         models = self.live_models(device_id)
-        if not models:
-            return None
-        return (
-            self._generation(device_id),
-            self._discovery_revisions.get(device_id, 0),
-            models,
+        authority = (
+            (
+                self._generation(device_id),
+                self._discovery_revisions.get(device_id, 0),
+                models,
+            )
+            if models
+            else None
         )
+        self.diagnostics.transition(
+            ("device", device_id),
+            "control",
+            "write_authority_changed",
+            authority,
+            device_id=device_id,
+            connection_generation=self._generation(device_id),
+            discovery_revision=self._discovery_revisions.get(device_id, 0),
+            result="valid" if authority else "invalid",
+        )
+        return authority
 
     def _discover_device(self, device_id, transport):
         self._discovery_revisions[device_id] = (
@@ -298,8 +322,73 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         )
         self.discovered_models_by_device.pop(device_id, None)
         owner = getattr(transport, "endpoint", transport)
-        owner.connect()
-        discovered = SunSpecDiscovery(transport).discover()
+        scope = ("device", device_id)
+        endpoint_scope = ("endpoint", id(owner))
+        recovering = self.diagnostics.active(scope) or self.diagnostics.active(
+            endpoint_scope
+        )
+        reason = (
+            "communication_recovery"
+            if recovering
+            else (
+                "initial"
+                if self._discovery_revisions[device_id] == 1
+                else "scheduled_renewal"
+                if time.monotonic() >= self._discovery_deadlines.get(device_id, 0)
+                else "session_change"
+            )
+        )
+        if recovering:
+            self.diagnostics.failure(
+                scope,
+                "sunspec",
+                "rediscovery_started",
+                reason=reason,
+                device_id=device_id,
+            )
+        self.diagnostics.event(
+            3,
+            "sunspec",
+            "discovery_started",
+            scope=scope,
+            interval=SUMMARY_SECONDS,
+            device_id=device_id,
+            reason=reason,
+        )
+        try:
+            owner.connect()
+            discovered = SunSpecDiscovery(transport).discover()
+        except (ModbusTransportError, SunSpecDiscoveryError) as err:
+            self.diagnostics.failure(
+                scope,
+                "sunspec",
+                "discovery_failed",
+                reason=error_reason(err),
+                device_id=device_id,
+                connection_generation=self._generation(device_id),
+            )
+            raise
+        if recovering:
+            self.diagnostics.failure(
+                scope,
+                "sunspec",
+                "discovery_recovered",
+                reason="validated",
+                device_id=device_id,
+                connection_generation=self._generation(device_id),
+                discovery_revision=self._discovery_revisions[device_id],
+            )
+        self.diagnostics.event(
+            3,
+            "sunspec",
+            "discovery_completed",
+            scope=scope,
+            interval=SUMMARY_SECONDS,
+            device_id=device_id,
+            discovery_revision=self._discovery_revisions[device_id],
+            result="validated",
+            model_count=len(discovered),
+        )
         self.discovered_models_by_device[device_id] = discovered
         self._live_generations[device_id] = self._generation(device_id)
         self._discovery_deadlines[device_id] = time.monotonic() + 300
@@ -334,6 +423,11 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                     self.entry, data={**self.entry.data, CONF_TOPOLOGY: self.topology}
                 )
             return data
+        except Exception as err:
+            self.diagnostics.event(
+                0, "coordinator", "runtime_error", reason=type(err).__name__
+            )
+            raise
         finally:
             self._update_tasks.discard(task)
 
@@ -433,8 +527,12 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                 if isinstance(err, SunSpecDiscoveryError):
                     incompatible.add(device_id)
                 self.discovered_models_by_device.pop(device_id, None)
-                _LOGGER.debug(
-                    "Failed to poll Modbus device ID %s", device_id, exc_info=True
+                self.diagnostics.failure(
+                    ("device", device_id),
+                    "modbus",
+                    "communication_failure",
+                    reason=error_reason(err),
+                    device_id=device_id,
                 )
                 devices.append(
                     DeviceSnapshot(device_id, discovered, (), available=False)
@@ -488,32 +586,37 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                         + (int((started - deadline) // self.slow_interval) + 1)
                         * self.slow_interval
                     )
-                _LOGGER.debug(
-                    "Poll %s unit=%s models=%s planned_reads=%s planned_registers=%s "
-                    "discovery=%s elapsed=%.3fs success=%s",
-                    "FAST+SLOW" if slow_due else "FAST",
-                    device_id,
-                    [
-                        (model.model_id, model.base_address, model.length)
-                        for model in selected
-                    ],
-                    sum(
-                        (model.length + MAX_HOLDING_REGISTERS_PER_READ - 1)
-                        // MAX_HOLDING_REGISTERS_PER_READ
-                        for model in selected
-                    ),
-                    sum(model.length for model in selected),
-                    rediscover,
-                    time.monotonic() - started,
-                    success,
-                )
+                if self.diagnostics.enabled(3):
+                    self.diagnostics.event(
+                        3,
+                        "coordinator",
+                        "poll_summary",
+                        scope=("device", device_id),
+                        interval=SUMMARY_SECONDS,
+                        device_id=device_id,
+                        cadence="FAST+SLOW" if slow_due else "FAST",
+                        models=[
+                            (m.model_id, m.base_address, m.length) for m in selected
+                        ],
+                        planned_reads=sum(
+                            (m.length + MAX_HOLDING_REGISTERS_PER_READ - 1)
+                            // MAX_HOLDING_REGISTERS_PER_READ
+                            for m in selected
+                        ),
+                        planned_registers=sum(m.length for m in selected),
+                        discovery=rediscover,
+                        elapsed_ms=round((time.monotonic() - started) * 1000, 2),
+                        result="success" if success else "failed",
+                        connection_generation=self._generation(device_id),
+                    )
         data = FroniusPVCoordinatorData(tuple(devices))
         self.measurement_time = time.monotonic()
         self._retain_measurements(data, incompatible, validated)
+        self._diagnose_live(data)
         return data
 
-    @staticmethod
     def _poll_device(
+        self,
         transport: ModbusDeviceTransport,
         discovered_models: tuple[DiscoveredModel, ...],
     ) -> tuple[DecodedModelSnapshot, ...]:
@@ -531,11 +634,43 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                 )
                 decoded = decode_model(definition, payload)
             except (ModbusTransportError, ValueError) as err:
-                _LOGGER.debug(
-                    "Failed to read SunSpec model %s at address %s",
-                    discovered.model_id,
-                    discovered.base_address,
-                    exc_info=True,
+                device_id = next(
+                    (
+                        unit
+                        for unit, view in self.transports.items()
+                        if view is transport
+                    ),
+                    None,
+                )
+                reason = error_reason(err)
+                if isinstance(err, ModbusTransportError):
+                    self.diagnostics.failure(
+                        ("device", device_id),
+                        "modbus",
+                        "communication_failure",
+                        reason=reason,
+                        device_id=device_id,
+                    )
+                if isinstance(err, ValueError):
+                    self.diagnostics.event(
+                        0,
+                        "sunspec",
+                        "protocol_error",
+                        reason="decode_error",
+                        scope=("model", device_id, discovered.model_id),
+                        interval=SUMMARY_SECONDS,
+                        device_id=device_id,
+                        model_id=discovered.model_id,
+                    )
+                self.diagnostics.event(
+                    3,
+                    "sunspec",
+                    "model_read_failed",
+                    scope=("model", device_id, discovered.model_id),
+                    interval=SUMMARY_SECONDS,
+                    device_id=device_id,
+                    model_id=discovered.model_id,
+                    reason=reason,
                 )
                 # Live safety data remains invalid; sensor retention is separate.
                 decoded_models.append(
@@ -552,6 +687,93 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                     DecodedModelSnapshot(discovered, definition, decoded)
                 )
         return tuple(decoded_models)
+
+    @diagnostic_observer
+    def _diagnose_live(self, data):
+        # Observe current I/O outcomes, never the retained sensor view.
+        owners = {}
+        for device in data.devices:
+            unit = device.device_id
+            transport = self.transports[unit]
+            owner = getattr(transport, "endpoint", transport)
+            owners.setdefault(id(owner), []).append(device)
+            scope = ("device", unit)
+            complete = bool(device.decoded_models) and all(
+                s.available for s in device.decoded_models
+            )
+            if complete and self.live_models(unit):
+                self.diagnostics.recover(
+                    scope,
+                    "modbus",
+                    "communication_recovered",
+                    device_id=unit,
+                    connection_generation=self._generation(unit),
+                    discovery_revision=self._discovery_revisions.get(unit, 0),
+                )
+            if self.diagnostics.enabled(2):
+                self.diagnostics.transition(
+                    scope,
+                    "coordinator",
+                    "device_availability_changed",
+                    device.available,
+                    device_id=unit,
+                    result="live" if device.available else "offline",
+                )
+                if (
+                    unit in self.discovered_models_by_device
+                    and self._live_generations.get(unit) == self._generation(unit)
+                ):
+                    self.diagnostics.transition(
+                        scope,
+                        "sunspec",
+                        "topology_changed",
+                        device.discovered_models,
+                        device_id=unit,
+                    )
+                self.write_authority(unit)
+                for snapshot in device.decoded_models:
+                    if not snapshot.available:
+                        continue
+                    mid = snapshot.discovered.model_id
+                    if (
+                        sum(s.discovered.model_id == mid for s in device.decoded_models)
+                        != 1
+                    ):
+                        # Ambiguous sources cannot establish a physical transition.
+                        continue
+                    field = {103: "St", 124: "ChaSt"}.get(mid)
+                    if (
+                        field is not None
+                        and (value := snapshot.decoded.fixed.get(field)) is not None
+                    ):
+                        if value.value is not None:
+                            self.diagnostics.transition(
+                                ("model", unit, mid),
+                                "coordinator",
+                                "operating_state_changed",
+                                value.value,
+                                device_id=unit,
+                                model_id=mid,
+                                state=value.value,
+                            )
+                    if mid == 160:
+                        self.diagnostics.transition(
+                            scope,
+                            "sunspec",
+                            "capabilities_changed",
+                            self._reading_identity(snapshot),
+                            device_id=unit,
+                        )
+        for owner_id, devices in owners.items():
+            if all(
+                d.decoded_models
+                and all(s.available for s in d.decoded_models)
+                and self.live_models(d.device_id)
+                for d in devices
+            ):
+                self.diagnostics.recover(
+                    ("endpoint", owner_id), "modbus", "endpoint_recovered"
+                )
 
     async def async_stop(self, _event=None) -> None:
         """Idempotently stop without writing a remote release target."""
@@ -571,7 +793,9 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         try:
             await self.async_close()
         except ModbusTransportError:
-            _LOGGER.warning("Failed to close Fronius Modbus transport", exc_info=True)
+            self.diagnostics.event(
+                0, "coordinator", "lifecycle_error", reason="transport_close_failed"
+            )
 
     async def async_close(self) -> None:
         """Drain existing I/O, reject new operations, and close exactly once."""

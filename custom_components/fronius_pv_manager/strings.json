@@ -30,18 +30,21 @@
   "options": {
     "step": {
       "init": {
-        "title": "Polling intervals",
+        "title": "Polling and diagnostics",
         "data": {
+          "diagnostic_level": "Diagnostic level",
           "fast_scan_interval": "Fast polling interval (seconds)",
           "slow_scan_interval": "Slow polling interval (seconds)"
         },
         "data_description": {
+          "diagnostic_level": "0: Errors only (default). 1: Communication and recovery. 2: Also state transitions and control. 3: Bounded technical details. Diagnostic level changes apply immediately without reload.",
           "fast_scan_interval": "Dynamic electrical measurements, 2–30 seconds. A shorter interval cannot force the device to produce new measurements faster.",
           "slow_scan_interval": "Slowly changing/static measurements, 10–300 seconds; at least as long as the fast interval."
         }
       }
     },
     "error": {
+      "invalid_diagnostic_level": "Enter a whole diagnostic level from 0 through 3.",
       "invalid_interval": "Enter a whole number within the allowed range.",
       "slow_less_than_fast": "The slow interval must be at least as long as the fast interval."
     }

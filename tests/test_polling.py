@@ -247,14 +247,26 @@ async def test_documented_topology_request_accounting(clock):
 
 @pytest.mark.asyncio
 async def test_cycle_diagnostics_label_planned_counts(clock, caplog):
+    import json
+
     coordinator, _, _ = runtime((1, 65), (103, 50))
+    coordinator.entry.options["diagnostic_level"] = 3
     await coordinator.async_refresh()
-    clock.now = 5
-    with caplog.at_level("DEBUG", logger=coordinator_module.__name__):
-        await coordinator.async_refresh()
-    assert "Poll FAST unit=1 models=" in caplog.text
-    assert "planned_reads=1 planned_registers=50 discovery=False" in caplog.text
-    assert "success=True" in caplog.text
+    caplog.clear()
+    clock.now = 65
+    coordinator.diagnostics.clock = lambda: clock.now
+    # The first observation used real monotonic time; reset only the test rate gate.
+    coordinator.diagnostics._rates.clear()
+    await coordinator.async_refresh()
+    records = [
+        json.loads(r.getMessage().split(" ", 2)[2])
+        for r in caplog.records
+        if r.getMessage().startswith("FPMGR ")
+    ]
+    summary = next(r for r in records if r["event"] == "poll_summary")
+    assert summary["planned_reads"] == 2
+    assert summary["planned_registers"] == 115
+    assert summary["cadence"] == "FAST+SLOW" and summary["result"] == "success"
 
 
 @pytest.mark.asyncio

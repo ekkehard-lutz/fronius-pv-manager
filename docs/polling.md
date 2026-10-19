@@ -156,18 +156,25 @@ to a three-second timeout; retries remain zero. Other TCP clients are outside th
 integration's lock. There is no asserted fixed request-per-second limit or lockout
 threshold for GEN24.
 
-Enable DEBUG for `custom_components.fronius_pv_manager`. One compact poll record
-per unit reports FAST/FAST+SLOW, unit, selected `(model ID, payload base, length)`
-groups, planned payload read/register totals, discovery flag, elapsed seconds and
-success/failure. Existing exceptional model/discovery debug details remain.
-Nothing new is logged at INFO per cycle.
+Set **Diagnostic level 3** in Configure for bounded technical summaries, or level 1
+for communication/recovery only. The diagnostic level is read live; it does not
+change poll deadlines or reload the runtime. Standard Python WARNING visibility
+suffices; no global DEBUG setting is needed. The [diagnostic event inventory](diagnostics.md)
+describes the structured `FPMGR subsystem=... {JSON}` format and deduplication.
 
-`planned_reads` / `planned_registers` equal actual payload calls/registers on a
-successful cycle. On failure, chunking can stop early: these are planned counts,
-not measured successful transfers or TCP wire packets. They exclude discovery,
-write/readback traffic, reconnect handshakes and HTTP. No invasive transport
-instrumentation was introduced. The elapsed duration includes discovery when
-needed and the unit's payload work; it excludes other units, lock wait and HTTP.
+One `poll_summary` per unit per minute reports FAST/FAST+SLOW, selected model/base/
+length groups, planned payload reads/registers, discovery flag, elapsed milliseconds,
+session generation and result. `planned_reads` / `planned_registers` equal actual
+payload calls/registers only on successful cycles. Failures can stop chunking early;
+counts exclude discovery, write/readback traffic, reconnect handshakes and HTTP.
+Elapsed time covers that unit's discovery and payload work, excluding other units,
+lock wait and optional HTTP. These are diagnostic scheduling summaries, not measured
+wire packets or physical acquisition timestamps. No sensor attributes are added.
+
+Level 1 reports an error-triggered rediscovery after a read/session failure, with
+one recovery event when validated live discovery and complete reads resume. A normal
+300-second discovery renewal remains a healthy operation (detail only at level 3).
+Held sensor availability never determines communication recovery or write authority.
 
 ## Reproducible Modbus cost
 
@@ -208,11 +215,12 @@ capacity limits. Actual cycles depend on topology and response time.
 1. Record GEN24/Smart Meter/battery firmware, discovered units/models/lengths and
    baseline timeout/error counts. Back up HA configuration; install the reviewed
    feature build without changing writable policy or control targets.
-2. Leave options absent initially. Confirm 5/30 defaults. Enable integration DEBUG
-   temporarily and capture at least ten minutes, including a discovery renewal.
-3. Compare per-unit cycle records: approximately five FAST-only cycles between full
-   cycles; successful example payload counts 5/267 versus 11/521 summed over units.
-   Check discovery approximately every 300 seconds, no duplicate model reads.
+2. Leave interval options absent initially. Confirm 5/30 defaults. Set diagnostic
+   level 3 temporarily and capture at least ten minutes, including discovery renewal.
+3. Inspect per-unit summaries and a request trace: healthy summaries are rate-limited
+   to one per minute, so they do not enumerate every cycle. A read-only trace should
+   show approximately five FAST-only cycles between full cycles and example payload
+   counts 5/267 versus 11/521 summed over units; discovery remains about every 300 s.
 4. Inspect representative inverter power, meter phase current, PV/grid/load power
    and battery SoC states. Record value, availability, `last_reported`,
    `last_updated`, `last_changed`. Stable FAST readings should still be reported;
@@ -231,7 +239,7 @@ capacity limits. Actual cycles depend on topology and response time.
 8. Exercise one already approved, reversible writable control using the existing
    safe test procedure. Verify serialized write/readback, confirmed entity state,
    no duplicate write and normal polling afterward; restore the original setting.
-   Disable DEBUG when finished.
+   Restore diagnostic level 0 when finished.
 
 ## Separate temporary physical-cadence experiment
 

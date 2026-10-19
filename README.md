@@ -58,6 +58,31 @@ poll failures. **Held sensor values do not authorize writes or renew leases**:
 controls and the internal control classifier still require valid live data and
 session discovery. See [architecture, inventory and reproducible simulation](docs/measurement-publication.md).
 
+
+## Diagnostic logging
+
+Integration **Configure** also offers an integer **Diagnostic level** (`diagnostic_level`):
+
+| Level | Diagnostic events |
+| --- | --- |
+| **0 (default)** | Genuine unexpected integration/protocol/lifecycle errors; routine communication failures stay quiet. |
+| **1** | Communication failure episodes, actual TCP resets, reconnection and error-triggered SunSpec discovery/recovery. |
+| **2** | Also genuine live state/topology/write-authority changes, control results and remote-lease events. |
+| **3** | Also bounded technical summaries, selected models, request/register counts and readback detail. |
+
+Each level includes lower levels. Opt-in events use Python **WARNING**, so they
+are visible in standard HA logs without enabling DEBUG. Genuine diagnostic errors
+use ERROR. Changing only this level applies live on the existing runtime, without
+reload, TCP reset, rediscovery, polling rescheduling or changes to held readings,
+median history or remote-control leases. FAST/SLOW interval changes still reload.
+
+Logs use `FPMGR subsystem=...` followed by structured JSON. Identical outage events
+are suppressed and summarized at most once per five minutes per scope/error class;
+healthy Level 3 polling summaries are limited to once per minute per unit. Normal
+scheduled discovery renewal is not a Level 1 warning. A retained available sensor
+can coexist with communication warnings and invalid live write authority. See
+[event inventory, examples, deduplication and limitations](docs/diagnostics.md).
+
 ## For Home Assistant users
 
 ### Features

@@ -231,6 +231,7 @@ async def test_renew_postpones_watchdog_and_expiry_restores_automatic(
     remote, renew, caplog
 ):
     coordinator, control, clock = remote
+    coordinator.entry.options["diagnostic_level"] = 2
     await control.async_acquire_remote_control(1, OWNER, PROFILE)
     writes = len(coordinator.control_transport.write_calls)
     await clock.advance(80, control)

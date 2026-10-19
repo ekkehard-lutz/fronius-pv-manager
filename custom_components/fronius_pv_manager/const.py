@@ -20,3 +20,5 @@ MAX_SLOW_SCAN_INTERVAL = 300
 
 # Whole payloads: AC electrical values, storage/SoC, DC channels, grid meter.
 FAST_MODEL_IDS = frozenset({103, 124, 160, 203})
+
+CONF_DIAGNOSTIC_LEVEL = "diagnostic_level"

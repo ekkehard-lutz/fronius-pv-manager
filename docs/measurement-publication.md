@@ -100,9 +100,14 @@ eligibility (including MPPT state, same-unit sources and module uniqueness) rema
 ## Read faults versus write authority
 
 A timeout is not a measurement. The last successful model snapshot for the same
-logical device is held **by object identity**, with no outage expiry. Successful
-siblings continue to publish. Repeated FAST/SLOW timeouts and failed second chunks
-do not cause sensor `unavailable`, zero, Recorder changes or new `last_reported`.
+logical device is held **by object identity**. Successful siblings continue to
+publish. Repeated failed reads do not create zeros or new `last_reported`.
+Read-only availability now expires per device ID after continuous communication
+failure reaches the configured timeout (default 300 s, range 30–600 s). Expiry
+produces one unavailable transition while keeping cached values internally.
+A successful exchange from the same unit clears the failure interval; isolated
+model failures or successful first chunks do not imply a unit-wide outage.
+See [communication availability](communication-availability.md).
 An initial failure cannot create a valid snapshot. Successful recovery reports
 immediately for raw/derived power, even if the normalized value is unchanged;
 efficiencies retain their SLOW publication rule.
@@ -119,7 +124,8 @@ The memory-only publication view never populates `live_models`, changes a TCP
 generation, extends a discovery deadline or renews a remote-control lease. Failed
 live models/devices remain failed, and existing session/discovery validation,
 preflight, write policy, readback and watchdog behavior remain unchanged. Read-only
-storage status displays its last confirmed classification during a read outage;
+storage status displays its last confirmed classification before the timeout;
+after expiry it is unavailable while retaining that classification internally;
 its internal classifier still returns unknown and controls cannot use this display
 as confirmation. Persisted topology is still structural and carries no readings.
 
@@ -222,10 +228,11 @@ control plans for absent, low, high and excessive informative efficiency values.
 
 All fault injections and writes in tests use synthetic transports. No running
 Home Assistant integration, physical Modbus write, release version, tag, merge or
-release is part of this change. Stable manifest version stays v1.2.0. Physical
-measurement cadence and real CPU/database savings remain unmeasured. Held values
-can be stale indefinitely by design; an unavailable writable control and an
-available held sensor are intentional independent states.
+release was part of the original measurement-publication change. Physical
+measurement cadence and real CPU/database savings remain unmeasured. Cached values
+remain in memory during outages, but their read-only availability now has a
+per-device communication timeout. Writable controls still fail immediately;
+measurement availability never extends live write authority.
 
 
 ## Changed files

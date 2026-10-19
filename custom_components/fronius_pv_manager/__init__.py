@@ -94,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
 async def _async_options_updated(
     hass: HomeAssistant, entry: FroniusPVConfigEntry
 ) -> None:
-    """Diagnostics read options live; only interval changes reload the runtime."""
+    """Diagnostics and availability read options live; only interval changes reload."""
     from .const import (
         CONF_FAST_SCAN_INTERVAL,
         CONF_SLOW_SCAN_INTERVAL,

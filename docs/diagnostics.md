@@ -57,6 +57,8 @@ upstream exception text and upstream frame dumps are not logged by this emitter.
 | `upstream_error` | 0 | ERROR | Unexpected pymodbus ERROR during this entry's client call | Per upstream function, 60 s; sanitized |
 | `control_failed` (unexpected) | 0 | ERROR | Unexpected exception from a control operation, including persistence failure | Actual operation; re-raised |
 | `lease_fallback_failed` | 0 | ERROR | Expiry fallback failed, cleanup remains pending | Existing one-shot watchdog failure |
+| `communication_availability_timeout` | 1 | WARNING | Continuous per-unit communication failure reaches configured timeout; includes `device_id`, `timeout_seconds`, `result="unavailable"` | Once per actual timeout transition |
+| `communication_availability_recovered` | 1 | WARNING | A timed-out unit supplies a valid Modbus response; includes `device_id`, `timeout_seconds`, `result="responding"` | Once per communication transition; entity sources may still be invalid |
 | `communication_failure` | 1 | WARNING | Register read/write/response or poll communication failure | Per device and reason, 300 s |
 | `connection_failure` | 1 | WARNING | Actual TCP connection attempt failed | Endpoint and reason, 300 s |
 | `connection_lost` | 1 | WARNING | Connected transport observes closed underlying client | Endpoint and reason, 300 s |
@@ -168,11 +170,15 @@ retain native pymodbus logging.
 ## Retained values and actual communication
 
 The emitter observes transport operations and live coordinator snapshots, never
-sensor availability as a health oracle. A last-valid sensor remains available and
-unchanged during a read failure while communication warnings and loss of live
-write authority are visible. No failure creates `last_reported`, a Recorder state
-change, an efficiency sample, an expiry rule, a measurement correction or a lease
-renewal. Initial invalid values and proven identity/topology incompatibilities
+sensor availability as a health oracle. A last-valid sensor remains available and unchanged before its per-device
+communication timeout, while failure warnings and loss of live write authority
+are visible. At expiry it transitions to unavailable once; repeated failed polls
+do not report it again. The cached value remains internal. No failed read creates
+a fresh measurement, efficiency sample, measurement correction or lease renewal.
+The two availability events are separate from full `communication_recovered` and
+`endpoint_recovered`: a valid discovery response or read chunk proves a responding
+unit but does not validate every model or restore write authority.
+See [communication availability](communication-availability.md). Initial invalid values and proven identity/topology incompatibilities
 retain the previous protections, including an incompatible/empty discovery chain.
 
 Control diagnostics surround existing operations, without changing their I/O lock,

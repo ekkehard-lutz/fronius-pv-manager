@@ -32,11 +32,13 @@
       "init": {
         "title": "Abfrageintervalle und Diagnose",
         "data": {
+          "communication_availability_timeout": "Zeitlimit für Kommunikationsverfügbarkeit (Sekunden)",
           "diagnostic_level": "Diagnosestufe",
           "fast_scan_interval": "Schnelles Abfrageintervall (Sekunden)",
           "slow_scan_interval": "Langsames Abfrageintervall (Sekunden)"
         },
         "data_description": {
+          "communication_availability_timeout": "30–600 Sekunden, Standard 300. Nach ununterbrochenen Kommunikationsfehlern werden zurückgehaltene Modbus-Messwerte je Geräte-ID nicht verfügbar. Gilt beim nächsten Refresh ohne Neuladen; FAST/SLOW-Intervalle bleiben unverändert.",
           "diagnostic_level": "0: Nur Fehler (Standard). 1: Kommunikation und Wiederherstellung. 2: Zusätzlich Zustandswechsel und Steuerung. 3: Begrenzte technische Details. Änderungen der Diagnosestufe wirken sofort ohne Neustart.",
           "fast_scan_interval": "Dynamische elektrische Messwerte, 2–30 Sekunden. Ein kürzeres Intervall erzwingt keine schnellere Erzeugung neuer Messwerte im Gerät.",
           "slow_scan_interval": "Langsam veränderliche/statische Messwerte, 10–300 Sekunden; mindestens so lang wie das schnelle Intervall."
@@ -44,6 +46,7 @@
       }
     },
     "error": {
+      "invalid_communication_timeout": "Eine ganze Zahl von 30 bis 600 Sekunden eingeben.",
       "invalid_diagnostic_level": "Gib eine ganze Diagnosestufe von 0 bis 3 ein.",
       "invalid_interval": "Eine ganze Zahl im erlaubten Bereich eingeben.",
       "slow_less_than_fast": "Das langsame Intervall muss mindestens so lang wie das schnelle Intervall sein."

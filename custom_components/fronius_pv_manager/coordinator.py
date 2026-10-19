@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .communication import CommunicationReader, communication_timeout
 from .const import (
     CONF_FAST_SCAN_INTERVAL,
     CONF_SLOW_SCAN_INTERVAL,
@@ -110,6 +111,11 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         self.measurement_epochs = {}
         self.slow_publication_devices = set()
         self.measurement_time = 0.0
+        self._communication_failures = {}
+        self._communication_responded = set()
+        self.communication_expired = set()
+        self.communication_timeout_revisions = {}
+        self._timeout_sources = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -164,6 +170,73 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     def measurement_data(self):
         """Retained sensor readings; never a source of write authority."""
         return self.data if self._measurement_data is None else self._measurement_data
+
+    def _observe_communication(self, device_id, successful):
+        if successful:
+            # Remember responses even if a later model fails in this refresh.
+            self._communication_responded.add(device_id)
+            self._communication_failures.pop(device_id, None)
+        else:
+            self._communication_failures.setdefault(device_id, time.monotonic())
+
+    def _communication_reader(self, device_id, transport):
+        return CommunicationReader(
+            transport,
+            lambda successful: self._observe_communication(device_id, successful),
+        )
+
+    def measurement_available(self, device_id, snapshot=None):
+        """Gate retained read-only data without altering live/control snapshots."""
+        return device_id not in self.communication_expired and (
+            snapshot is None
+            or all(
+                snapshot is not prior
+                for prior in self._timeout_sources.get(device_id, ())
+            )
+        )
+
+    def _update_communication_availability(self):
+        timeout = communication_timeout(self.entry.options)
+        now = time.monotonic()
+        for device_id in self.transports:
+            since = self._communication_failures.get(device_id)
+            expired = since is not None and now - since >= timeout
+            if expired and device_id not in self.communication_expired:
+                self.communication_expired.add(device_id)
+                self.communication_timeout_revisions[device_id] = (
+                    self.communication_timeout_revisions.get(device_id, 0) + 1
+                )
+                # Discovery alone must not revive these pre-timeout snapshots.
+                self._timeout_sources[device_id] = tuple(
+                    s
+                    for d in self.measurement_data.devices
+                    if d.device_id == device_id
+                    for s in d.decoded_models
+                )
+                self.diagnostics.event(
+                    1,
+                    "modbus",
+                    "communication_availability_timeout",
+                    device_id=device_id,
+                    timeout_seconds=timeout,
+                    result="unavailable",
+                )
+            elif (
+                not expired
+                and device_id in self.communication_expired
+                and device_id in self._communication_responded
+            ):
+                self.communication_expired.remove(device_id)
+                self.diagnostics.event(
+                    1,
+                    "modbus",
+                    "communication_availability_recovered",
+                    device_id=device_id,
+                    timeout_seconds=timeout,
+                    result="responding",
+                )
+
+        self._communication_responded.clear()
 
     def _retain_measurements(self, data, incompatible, validated):
         previous = {d.device_id: d for d in self.measurement_data.devices}
@@ -357,8 +430,12 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         )
         try:
             owner.connect()
-            discovered = SunSpecDiscovery(transport).discover()
+            discovered = SunSpecDiscovery(
+                self._communication_reader(device_id, transport)
+            ).discover()
         except (ModbusTransportError, SunSpecDiscoveryError) as err:
+            if isinstance(err, ModbusTransportError):
+                self._observe_communication(device_id, False)
             self.diagnostics.failure(
                 scope,
                 "sunspec",
@@ -612,6 +689,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         data = FroniusPVCoordinatorData(tuple(devices))
         self.measurement_time = time.monotonic()
         self._retain_measurements(data, incompatible, validated)
+        self._update_communication_availability()
         self._diagnose_live(data)
         return data
 
@@ -622,26 +700,22 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     ) -> tuple[DecodedModelSnapshot, ...]:
         """Decode all supported models for one device context."""
         decoded_models = []
+        device_id = next(
+            unit for unit, view in self.transports.items() if view is transport
+        )
+        reader = self._communication_reader(device_id, transport)
         for discovered in discovered_models:
             definition = get_model_definition(discovered.model_id)
             if definition is None:
                 continue
             try:
                 payload = read_holding_registers_chunked(
-                    transport,
+                    reader,
                     discovered.base_address,
                     discovered.length,
                 )
                 decoded = decode_model(definition, payload)
             except (ModbusTransportError, ValueError) as err:
-                device_id = next(
-                    (
-                        unit
-                        for unit, view in self.transports.items()
-                        if view is transport
-                    ),
-                    None,
-                )
                 reason = error_reason(err)
                 if isinstance(err, ModbusTransportError):
                     self.diagnostics.failure(

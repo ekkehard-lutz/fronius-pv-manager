@@ -22,6 +22,7 @@ class MeasurementSolarEntity(SolarEntity):
         self._epochs = None
         self._calculated_sources = None
         self._calculated_value = None
+        self._validated_communication_revisions = None
         self._window = EfficiencyWindow() if self.key.endswith("efficiency") else None
 
     @property
@@ -38,7 +39,26 @@ class MeasurementSolarEntity(SolarEntity):
 
     @property
     def available(self):
-        return self.published_value is not None
+        return (
+            self.published_value is not None
+            and all(
+                self.coordinator.measurement_available(unit)
+                for unit, _ in self._dependencies()
+            )
+            and (
+                not self._managed
+                or self._validated_communication_revisions
+                == self._communication_revisions()
+            )
+        )
+
+    def _communication_revisions(self):
+        return tuple(
+            sorted(
+                (unit, self.coordinator.communication_timeout_revisions.get(unit, 0))
+                for unit in {unit for unit, _ in self._dependencies()}
+            )
+        )
 
     def _dependencies(self):
         if self.key == "pv_power":
@@ -151,6 +171,8 @@ class MeasurementSolarEntity(SolarEntity):
             self._calculated_value = value
         if sources is not None and fresh:
             self._last_sources = sources
+        if value is not None:
+            self._validated_communication_revisions = self._communication_revisions()
         if self._window:
             self._window.observe(self.coordinator.measurement_time, value, self._mode())
             if (
@@ -171,11 +193,17 @@ class MeasurementSolarEntity(SolarEntity):
 
     async def async_added_to_hass(self):
         self._capture()
+        self._reported_measurement_available = self.available
         await super().async_added_to_hass()
 
     @callback
     def _handle_coordinator_update(self):
         previous = self._published_value
         report = self._capture()
-        if report or previous != self._published_value:
+        available = self.available
+        changed = available != getattr(
+            self, "_reported_measurement_available", available
+        )
+        self._reported_measurement_available = available
+        if report or previous != self._published_value or changed:
             self.async_write_ha_state()

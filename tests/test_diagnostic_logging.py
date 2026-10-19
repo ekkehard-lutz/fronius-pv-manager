@@ -267,6 +267,7 @@ async def test_valid_level_persistence_and_defaults(level):
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {
         "diagnostic_level": level,
+        "communication_availability_timeout": 300,
         "fast_scan_interval": 5,
         "slow_scan_interval": 30,
     }

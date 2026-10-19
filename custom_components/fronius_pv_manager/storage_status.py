@@ -24,6 +24,11 @@ class StorageControlStatus(StorageEntity, SensorEntity):
         self._status_epoch = epoch
         if super().available:
             self._held_status = self.control.status(self._source.device_id)
+            self._status_timeout_revision = (
+                self.coordinator.communication_timeout_revisions.get(
+                    self._source.device_id, 0
+                )
+            )
         elif not hasattr(self, "_held_status"):
             self._held_status = None
 
@@ -37,8 +42,14 @@ class StorageControlStatus(StorageEntity, SensorEntity):
 
     @property
     def available(self):
+        if not self.coordinator.measurement_available(self._source.device_id):
+            return False
         if hasattr(self, "_held_status"):
-            return self._held_status is not None
+            return self._held_status is not None and getattr(
+                self, "_status_timeout_revision", 0
+            ) == self.coordinator.communication_timeout_revisions.get(
+                self._source.device_id, 0
+            )
         return super().available
 
     @property

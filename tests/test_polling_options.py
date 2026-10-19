@@ -38,7 +38,12 @@ def options_flow(options=None):
 async def test_existing_entry_options_default_to_5_30():
     flow, _ = options_flow()
     result = await flow.async_step_init()
-    assert result["data_schema"]({}) == {FAST: 5, SLOW: 30, "diagnostic_level": 0}
+    assert result["data_schema"]({}) == {
+        FAST: 5,
+        SLOW: 30,
+        "diagnostic_level": 0,
+        "communication_availability_timeout": 300,
+    }
 
 
 @pytest.mark.asyncio
@@ -51,12 +56,18 @@ async def test_valid_options_persist_both_values_and_preserve_other_options(fast
         FAST: fast,
         SLOW: slow,
         "diagnostic_level": 0,
+        "communication_availability_timeout": 300,
         "unrelated": True,
     }
     # OptionsFlowManager persists the returned data, then subsequent forms reuse it.
     entry.options = result["data"]
     result = await flow.async_step_init()
-    assert result["data_schema"]({}) == {FAST: fast, SLOW: slow, "diagnostic_level": 0}
+    assert result["data_schema"]({}) == {
+        FAST: fast,
+        SLOW: slow,
+        "diagnostic_level": 0,
+        "communication_availability_timeout": 300,
+    }
 
 
 @pytest.mark.asyncio

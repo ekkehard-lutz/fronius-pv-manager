@@ -320,6 +320,9 @@ class FroniusPVSensor(ModelCoordinatorEntity, SensorEntity):
             and device.available
             and self._source.model_occurrence < len(matching)
             and matching[self._source.model_occurrence].available
+            and self.coordinator.measurement_available(
+                self._source.device_id, matching[self._source.model_occurrence]
+            )
         )
 
     @property

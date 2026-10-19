@@ -50,9 +50,18 @@ points**, only at normal SLOW deadlines (30 seconds by default). There is no ext
 poller. Invalid samples are omitted; the last valid published result is retained.
 
 A Modbus read timeout holds the last valid sensor reading without a new
-`last_reported`, unavailable transition or Recorder state change. There is no
-read-outage expiry. Initial missing readings remain unknown/unavailable; proven
-incompatible topology, changed device identity and invalid decoded data are not
+`last_reported` or Recorder state change. Configure **Communication availability
+timeout** (`communication_availability_timeout`, default **300 seconds**, integer
+**30–600**) to bound read-only availability during continuous communication failure.
+Each device ID expires independently on an existing refresh: affected measurements
+and dependent derived sensors become unavailable once, while retaining their values
+in memory. A valid Modbus response from that unit clears its failure interval;
+TCP connection alone does not. Failed individual models do not make a responding
+unit offline. Option changes apply live on the next refresh without reload.
+After expiry, each entity also needs valid source data to return. See
+[per-device communication availability](docs/communication-availability.md).
+
+Initial missing readings remain unknown/unavailable; proven incompatible topology, changed device identity and invalid decoded data are not
 silently accepted. Derived sensors retain their last complete result across partial
 poll failures. **Held sensor values do not authorize writes or renew leases**:
 controls and the internal control classifier still require valid live data and

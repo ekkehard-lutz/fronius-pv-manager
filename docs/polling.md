@@ -82,7 +82,12 @@ Unpolled SLOW snapshots retain exact object identity, suppressing redundant writ
 Raw sensor publication uses `measurement_data`: failed **reads** reuse the last
 valid model snapshot for that device, so no callback publication or freshness is
 invented. A failed second chunk never commits a partial model. Repeated timeouts,
-including discovery transport failures and TCP resets, have no age-based expiry.
+including discovery transport failures and TCP resets, retain cached values.
+Read-only availability expires independently per device ID after a continuous
+communication failure (default 300 s, configurable 30–600 s), evaluated during
+existing refreshes without extra I/O. Any valid Modbus response from that unit
+clears the interval; TCP success and unpolled SLOW models do not count as responses.
+See [timeout and source recovery rules](communication-availability.md).
 Initial missing data remains unknown/unavailable. A decode error remains an invalid
 model, rather than being treated as a successful read or silently masked.
 
@@ -95,8 +100,9 @@ identities clear incompatible readings and derived histories. Cached SLOW data f
 the old identity cannot fill the replacement's missing measurements. Units are
 isolated even when sharing a TCP endpoint. No held measurement changes write
 validation, readback, ownership, lease/watchdog behavior or live control snapshots.
-Read-only control status retains its displayed classification; the internal
-classifier and writable controls continue to require confirmed live state.
+Read-only control status retains its classification internally and becomes
+unavailable after the same device timeout; the internal classifier and writable
+controls continue to require confirmed live state.
 
 `ModelCoordinatorEntity` retains its source-identity/availability suppression.
 Numbers/selects still resolve live data. Raw sensors override the source view to

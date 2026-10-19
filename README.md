@@ -37,6 +37,65 @@ a value/attribute change and `last_changed` a value change. See the
 [polling design, exact model/cost tables, timestamp limitations and hardware test
 procedure](docs/polling.md) for timing, recovery and diagnostics details.
 
+
+Measurement publication uses decimal `ROUND_HALF_UP`: voltage **0.1 V**, current
+**0.001 A**, active power **0.1 W** (including PV/grid/consumption power).
+Cumulative energy retains its original decoded precision. SoC, control parameters,
+ratings, status, frequency and other dimensions retain their existing precision.
+These rules normalize the actual HA state, not just its display.
+
+The three informative efficiencies collect valid unrounded FAST samples in a
+rolling **60-second** window and publish the median, rounded to **0.1 percentage
+points**, only at normal SLOW deadlines (30 seconds by default). There is no extra
+poller. Invalid samples are omitted; the last valid published result is retained.
+
+A Modbus read timeout holds the last valid sensor reading without a new
+`last_reported` or Recorder state change. Configure **Communication availability
+timeout** (`communication_availability_timeout`, default **300 seconds**, integer
+**30–600**) to bound read-only availability during continuous communication failure.
+Each device ID expires independently on an existing refresh: affected measurements
+and dependent derived sensors become unavailable once, while retaining their values
+in memory. A valid Modbus response from that unit clears its failure interval;
+TCP connection alone does not. Failed individual models do not make a responding
+unit offline. Option changes apply live on the next refresh without reload.
+After expiry, each entity also needs valid source data to return. See
+[per-device communication availability](docs/communication-availability.md).
+
+Initial missing readings remain unknown/unavailable; proven incompatible topology, changed device identity and invalid decoded data are not
+silently accepted. Derived sensors retain their last complete result across partial
+poll failures. **Held sensor values do not authorize writes or renew leases**:
+controls and the internal control classifier still require valid live data and
+session discovery. See [architecture, inventory and reproducible simulation](docs/measurement-publication.md).
+
+
+## Diagnostic logging
+
+Integration **Configure** also offers an integer **Diagnostic level** (`diagnostic_level`):
+
+| Level | Diagnostic events |
+| --- | --- |
+| **0 (default)** | Genuine unexpected integration/protocol/lifecycle errors; routine communication failures stay quiet. |
+| **1** | Initial TCP connection, communication failure episodes, actual TCP resets, reconnection and error-triggered SunSpec discovery/recovery. |
+| **2** | Also genuine live state/topology/write-authority changes, control results and remote-lease events. |
+| **3** | Also bounded technical summaries, selected models, request/register counts and readback detail. |
+
+Each level includes lower levels. Opt-in events use Python **WARNING**, so they
+are visible in standard HA logs without enabling DEBUG. Genuine diagnostic errors
+use ERROR. Changing only this level applies live on the existing runtime, without
+reload, TCP reset, rediscovery, polling rescheduling or changes to held readings,
+median history or remote-control leases. FAST/SLOW interval changes still reload.
+
+Logs use `FPMGR subsystem=...` followed by structured JSON. Identical outage events
+are suppressed and summarized at most once per five minutes per scope/error class.
+Successful TCP sessions log once each (`reason="initial"` or `"reconnect"`), shared
+across device IDs, without that five-minute limit. They confirm TCP establishment
+only; discovery, measurements and write authority have separate validation.
+Enabling diagnostics on an already connected endpoint does not replay a connection.
+Healthy Level 3 polling summaries are limited to once per minute per unit. Normal
+scheduled discovery renewal is not a Level 1 warning. A retained available sensor
+can coexist with communication warnings and invalid live write authority. See
+[event inventory, examples, deduplication and limitations](docs/diagnostics.md).
+
 ## For Home Assistant users
 
 ### Features
@@ -151,9 +210,11 @@ and existing entity/device identifiers remain unchanged.
 
 An existing entry loads its runtime and platforms even when every unit is
 offline. The initial refresh reads all supported models. Subsequent selective
-FAST/SLOW polls handle failures per unit and per model. Failed measurements become
-unavailable; valid SLOW snapshots remain cached between their scheduled reads. Failed discovery and
-reads are attempted again on normal updates, and recovery needs no reload.
+FAST/SLOW polls handle failures per unit and per model. Read failures hold valid
+sensor measurements without reporting a new measurement; unpolled SLOW snapshots
+also remain cached. Failed discovery/reads retry on normal updates. A transport
+error during discovery preserves readings, while a proven invalid SunSpec chain
+invalidates them. Recovery needs no reload.
 Storage and battery availability follows the inverter's storage/module models,
 without introducing a separate battery connection.
 
@@ -297,9 +358,10 @@ For example, HLC Operating mode may remain manual while status shows an override
 | `unknown` | Missing/invalid/unsupported data, an impossible active window, or a non-neutral state without a known HLC target. |
 
 Only active boundaries determine whether a window is valid. Neutral automatic
-state takes precedence even if the saved HLC mode is manual. During a device
-outage Home Assistant marks the sensor unavailable; its classifier returns
-unknown until confirmed data is available again.
+state takes precedence even if the saved HLC mode is manual. During a read
+outage the displayed sensor retains its last confirmed classification without
+reporting a new state. The internal classifier returns unknown and writable
+controls retain their live-data validation. The display is not write authority.
 
 Polling only observes changes; it never restores HLC targets. Editing a watt
 setting in selected manual mode or explicitly selecting manual again validates
@@ -861,7 +923,8 @@ include battery power on GEN24. Any number of discovered MPPTs is supported;
 missing MPPT values are omitted, and no available MPPT values means unavailable.
 A valid zero remains zero. A present but malformed or negative MPPT power value
 makes PV Power unavailable rather than contributing to a partial total.
-Failed device/model polls do not supply stale values.
+Failed device/model polls retain the last complete published result; they do not
+produce a new derived measurement from mixed successful and failed inputs.
 
 Grid directions follow the [Fronius meter convention](https://manuals.fronius.com/html/4204102649/en-US.html)
 for a meter at the grid connection: positive means import, negative means export.
@@ -877,8 +940,8 @@ Live decoded source selection must agree with current and cached discovery.
 All nine semantic power and percentage sensors reject booleans, nonnumeric values,
 unsupported numeric types, NaN, infinity, and engineering values too large for safe
 arithmetic.
-Overflow or non-finite calculation results produce unavailable values, not
-exceptions or clamped percentages. This adds no operational power threshold.
+Overflow or non-finite calculations are rejected without replacing a previously
+valid derived reading. Initially, without a valid calculation, the sensor is unavailable. This adds no operational power threshold.
 
 PV Power plus Grid Import/Export Power are suitable for Home Assistant Energy
 Dashboard **power-flow configuration**. All use W, device class `power`, and
@@ -908,9 +971,10 @@ production, as observed on GEN24 against native Fronius SolarNet readings.
 With nonpositive inverter AC power and positive grid export, Self Consumption
 remains unavailable because this combination has not been empirically validated.
 This edge case does not change Inverter Efficiency, which represents DC-to-AC
-conversion only and remains unavailable during net AC-to-DC operation.
-Any missing, invalid, or offline required source makes the derived value
-unavailable; missing measurements are never replaced with zero.
+conversion only and cannot accept new samples during net AC-to-DC operation.
+Missing, invalid, or offline required sources prevent a new calculation; the last
+complete published value is held, or the sensor remains unavailable before its
+first valid calculation. Missing measurements are never replaced with zero.
 
 **Self Consumption uses locally consumed inverter AC output, not PV Power.**
 Battery discharge therefore contributes through inverter AC power. This is the
@@ -941,6 +1005,19 @@ Three read-only semantic sensors use decoded Modbus data, independently of wheth
 source entities are enabled. All use `%`, state class `measurement`, and no
 device class, following the existing percentage sensors. None clamps results
 to 100%; mathematically valid values above 100% remain visible.
+
+These sensors are informational and have no control/safety role. The formulas
+below describe **instantaneous sample eligibility**, using unrounded live inputs.
+The HA state is the 60-second rolling median at the configured SLOW cadence, rounded
+to 0.1 percentage points. References below to invalid/unavailable calculations
+mean no eligible new sample: an already published valid efficiency is retained.
+There is no full-window warm-up: the first normal SLOW opportunity with a valid
+sample can publish even one sample. After more than 60 seconds without valid
+samples the window is empty, but the published value remains; recovery starts a
+fresh window and publishes at the next normal SLOW opportunity. Direction/operating
+state changes clear instantaneous efficiency windows. Lifetime counters remain
+compatible across charge/discharge modes; capacity or topology changes reset the
+corresponding history. See [detailed publication rules](docs/measurement-publication.md).
 
 **Inverter Efficiency / Wechselrichter-Wirkungsgrad** belongs to the inverter:
 
@@ -1092,7 +1169,9 @@ percentage is recommended here. Grid permission governs regular controlled
 charging, not every safety/service charge.
 
 Smart Meter reachability during Full Backup depends on wiring and installation.
-An unavailable meter affects its own entities and recovers through polling.
+A meter read outage holds its valid sensor readings without marking them fresh;
+initially missing or proven incompatible devices remain unavailable and recover
+through polling.
 The repository does not record enough firmware/wiring-specific Full Backup
 evidence to generalize this behavior or claim a guaranteed backup reserve.
 The GEN24 remote-control verification above is not a Full Backup certification.

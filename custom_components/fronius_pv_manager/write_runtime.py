@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from homeassistant.exceptions import ServiceValidationError
+
+from .diagnostic_logging import diagnostic_operation
 from .register_writer import (
     RegisterWriteError,
     RegisterWriteResult,
@@ -113,6 +116,16 @@ class FroniusPVWriteRuntime:
     def __init__(self, coordinator: FroniusPVCoordinator) -> None:
         self._coordinator = coordinator
 
+    @diagnostic_operation(
+        "control",
+        (
+            FroniusPVWriteError,
+            RegisterWriteError,
+            ModbusTransportError,
+            WritePolicyError,
+            ServiceValidationError,
+        ),
+    )
     async def async_write(
         self,
         device_id: int,
@@ -158,6 +171,16 @@ class FroniusPVWriteRuntime:
         await self._coordinator.async_request_refresh()
         return FroniusPVWriteResult(device_id, policy, result)
 
+    @diagnostic_operation(
+        "control",
+        (
+            FroniusPVWriteError,
+            RegisterWriteError,
+            ModbusTransportError,
+            WritePolicyError,
+            ServiceValidationError,
+        ),
+    )
     async def async_write_sequence(
         self, device_id, requests, *, safety_prefix=0, before_write=None
     ):
@@ -214,6 +237,14 @@ class FroniusPVWriteRuntime:
                     (),
                     name,
                 ) from err
+        self._coordinator.diagnostics.event(
+            3,
+            "control",
+            "write_preflight_completed",
+            device_id=device_id,
+            step_count=len(plans),
+            result="prepared",
+        )
         if before_write is not None:
             before_write(transport, discovered)
         results = []
@@ -243,6 +274,14 @@ class FroniusPVWriteRuntime:
                     plan.register.name,
                 ) from err
             results.append(FroniusPVWriteResult(device_id, policy, result))
+        self._coordinator.diagnostics.event(
+            3,
+            "control",
+            "write_readback_completed",
+            device_id=device_id,
+            step_count=len(results),
+            result="verified",
+        )
         return tuple(results)
 
     def _prepare_sequence_step(self, transport, discovered, model_id, name, value):
@@ -280,8 +319,27 @@ class FroniusPVWriteRuntime:
             raise WriteTransportError("failed to prepare register write") from err
         except RegisterWriteError as err:
             raise WriteInvalidValueError(str(err)) from err
+        self._coordinator.diagnostics.event(
+            3,
+            "control",
+            "write_preflight_completed",
+            device_id=device_id,
+            model_id=policy.model_id,
+            register_name=policy.register_name,
+            result="prepared",
+        )
         try:
-            return execute_register_write(transport, prepared)
+            result = execute_register_write(transport, prepared)
+            self._coordinator.diagnostics.event(
+                3,
+                "control",
+                "write_readback_completed",
+                device_id=device_id,
+                model_id=policy.model_id,
+                register_name=policy.register_name,
+                result="verified" if result.verified else "mismatch",
+            )
+            return result
         except RegisterWriteVerificationError as err:
             raise WriteReadBackError(str(err)) from err
         except ModbusTransportError as err:

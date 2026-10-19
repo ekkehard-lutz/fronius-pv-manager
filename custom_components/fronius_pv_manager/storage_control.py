@@ -15,10 +15,15 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from .codec import encode_register_value
+from .diagnostic_logging import SUMMARY_SECONDS, diagnostic_operation
 from .register_maps import MODEL_124
 from .register_reader import read_register
 from .topology import valid_device_key
-from .write_runtime import WriteInvalidValueError, WriteSequenceError
+from .write_runtime import (
+    FroniusPVWriteError,
+    WriteInvalidValueError,
+    WriteSequenceError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 REMOTE_LEASE_SECONDS = 90
@@ -376,6 +381,7 @@ class StorageControl:
             return "unknown"
         return classify_storage_control(current, self.last_targets.get(str(device_id)))
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_change(self, device_id, *, field=None, value=None, mode=None):
         """Validate, apply if active, then persist settings after verified success."""
         async with self.lock:
@@ -415,6 +421,7 @@ class StorageControl:
                 validate=field is not None or selected_mode != "automatic",
             )
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_set_power_window(
         self, device_id: int, settings: PowerSettings
     ) -> None:
@@ -559,6 +566,7 @@ class StorageControl:
             # release before accepting a new manual action or acquisition.
             await self._expire_locked(device_id)
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_acquire_remote_control(
         self,
         device_id: int,
@@ -601,12 +609,14 @@ class StorageControl:
                 self._pre_remote[device_id] = candidate[0]
             self._renew(device_id, owner_id)
 
+    @diagnostic_operation("storage", (ServiceValidationError,), quiet=True)
     async def async_remote_heartbeat(self, device_id: int, owner_id: str) -> None:
         """Renew a live owner's deadline without reading/writing Modbus."""
         async with self.lock:
             self._require_owner(device_id, owner_id)
             self._renew(device_id, owner_id)
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_set_remote_power_window(
         self,
         device_id: int,
@@ -619,6 +629,7 @@ class StorageControl:
             await self._apply_locked(device_id, settings, "remote", apply=True)
             self._renew(device_id, owner_id)
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_write_policy_setting(self, device_id, name, value):
         """Write a manual reserve/grid HLC setting under the ownership lock."""
         async with self.lock:
@@ -651,6 +662,7 @@ class StorageControl:
         except WriteInvalidValueError as err:
             raise ServiceValidationError(str(err)) from err
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_set_remote_minimum_reserve(
         self, device_id: int, owner_id: str, value: float
     ) -> None:
@@ -660,6 +672,7 @@ class StorageControl:
             await self._write_policy_setting(device_id, "MinRsvPct", value)
             self._renew(device_id, owner_id)
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_set_remote_grid_charging_allowed(
         self, device_id: int, owner_id: str, enabled: bool
     ) -> None:
@@ -671,6 +684,7 @@ class StorageControl:
             await self._write_policy_setting(device_id, "ChaGriSet", int(enabled))
             self._renew(device_id, owner_id)
 
+    @diagnostic_operation("storage", (ServiceValidationError, FroniusPVWriteError))
     async def async_release_remote_control(self, device_id: int, owner_id: str) -> None:
         """Release to verified automatic, also allowing recovery of an expired lease."""
         async with self.lock:
@@ -716,6 +730,13 @@ class StorageControl:
         self._leases.pop(device_id, None)
         self._pre_remote.pop(device_id, None)
         self._cleanup.pop(device_id, None)
+        self.coordinator.diagnostics.event(
+            2,
+            "storage",
+            "lease_released",
+            device_id=device_id,
+            result="verified_automatic",
+        )
 
     def _record_automatic(self, device_id):
         """Record verified safety even when later policy/persistence steps fail."""
@@ -724,13 +745,16 @@ class StorageControl:
         self.coordinator.async_update_listeners()
 
     async def _expire_locked(self, device_id):
-        owner_id = self._leases[device_id].owner_id
+        self.coordinator.diagnostics.event(
+            2, "storage", "lease_expired", device_id=device_id
+        )
         await self._release_locked(device_id)
-        _LOGGER.warning(
-            "Remote storage lease expired for device %s (owner %s); "
-            "automatic mode restored",
-            device_id,
-            owner_id,
+        self.coordinator.diagnostics.event(
+            2,
+            "storage",
+            "lease_expiry_completed",
+            device_id=device_id,
+            reason="automatic mode restored",
         )
 
     def _cancel_watchdog(self, device_id):
@@ -738,10 +762,19 @@ class StorageControl:
             cancel()
 
     def _renew(self, device_id, owner_id):
+        first = device_id not in self._leases
         self._leases[device_id] = RemoteLease(
             owner_id, self._now() + REMOTE_LEASE_SECONDS
         )
         self._schedule_watchdog(device_id, REMOTE_LEASE_SECONDS)
+        self.coordinator.diagnostics.event(
+            2 if first else 3,
+            "storage",
+            "lease_acquired" if first else "lease_renewed",
+            scope=("device", device_id),
+            interval=0 if first else SUMMARY_SECONDS,
+            device_id=device_id,
+        )
 
     def _schedule_watchdog(self, device_id, delay):
         self._cancel_watchdog(device_id)
@@ -790,12 +823,13 @@ class StorageControl:
             except Exception:
                 # Retain the snapshot, reservation and verified cleanup progress.
                 # Only an explicit later action can retry; never loop writes.
-                _LOGGER.exception(
-                    "Remote lease expired for device %s; automatic fallback failed; "
-                    "cleanup pending: %s; runtime mode=%s",
-                    device_id,
-                    self._cleanup.get(device_id),
-                    self.mode(device_id),
+                self.coordinator.diagnostics.event(
+                    0,
+                    "storage",
+                    "lease_fallback_failed",
+                    device_id=device_id,
+                    reason="automatic fallback failed",
+                    result="cleanup_pending",
                 )
 
     async def async_shutdown(self) -> None:

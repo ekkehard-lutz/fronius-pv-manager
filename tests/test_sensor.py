@@ -417,7 +417,7 @@ async def test_fixed_unique_id_ignores_internal_model_occurrence() -> None:
 
 @pytest.mark.asyncio
 async def test_invalid_value_and_coordinator_availability() -> None:
-    """Invalid values are None while coordinator status controls availability."""
+    """Initial invalid values stay unknown; no held value is invented."""
     payload = [0] * 50
     payload[12] = 0x8000
     coordinator, entities, _ = await _entities_for(_snapshot(MODEL_103, payload))
@@ -426,7 +426,7 @@ async def test_invalid_value_and_coordinator_availability() -> None:
     assert power.native_value is None
     assert power.available
     coordinator.last_update_success = False
-    assert not power.available
+    assert power.available  # A coordinator error alone cannot invalidate readings.
     coordinator.last_update_success = True
     assert power.available
 

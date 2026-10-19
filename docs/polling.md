@@ -77,28 +77,56 @@ floating-point models are not newly supported by this feature.
 
 ## Failure, recovery and publication
 
-Successful FAST reads publish through the normal coordinator refresh immediately
-when that refresh completes; they never wait for a SLOW deadline. Unread SLOW
-snapshots retain their exact object identity and decoded values. A failed model
-read/decode instead produces an unavailable, empty snapshot for that model and
-invalidates that unit's live discovery authority for retry on the next refresh.
-Successful sibling models/units survive. If all attempted model reads fail,
-retained SLOW metadata cannot keep the unit available. A discovery failure makes
-the unit unavailable. Battery availability follows its existing model/channel
-semantics; there is no new battery transport.
+Successful FAST reads publish immediately after the coordinator refresh completes.
+Unpolled SLOW snapshots retain exact object identity, suppressing redundant writes.
+Raw sensor publication uses `measurement_data`: failed **reads** reuse the last
+valid model snapshot for that device, so no callback publication or freshness is
+invented. A failed second chunk never commits a partial model. Repeated timeouts,
+including discovery transport failures and TCP resets, retain cached values.
+Read-only availability expires independently per device ID after a continuous
+communication failure (default 300 s, configurable 30–600 s), evaluated during
+existing refreshes without extra I/O. Any valid Modbus response from that unit
+clears the interval; TCP success and unpolled SLOW models do not count as responses.
+See [timeout and source recovery rules](communication-availability.md).
+Initial missing data remains unknown/unavailable. A decode error remains an invalid
+model, rather than being treated as a successful read or silently masked.
 
-Discovery still expires 300 seconds after successful discovery and is renewed
-on the next refresh. Reconnection/session generation changes also invalidate it.
-Rediscovery reads all supported models, preventing cached SLOW values from an old
-layout/session being reused. Cached topology still constructs offline entities
-but cannot authorize writes. Startup while offline and recovery retain identities.
+Live `data` still contains failed/empty models and unavailable devices. Discovery
+expires after 300 seconds and session generation changes invalidate authority.
+Failures clear that unit's discovery authority and normal polling attempts recovery.
+Revalidated identical topology permits continuation of the sensor series; proven
+invalid discovery, changed model coordinates or changed Common identity/channel
+identities clear incompatible readings and derived histories. Cached SLOW data from
+the old identity cannot fill the replacement's missing measurements. Units are
+isolated even when sharing a TCP endpoint. No held measurement changes write
+validation, readback, ownership, lease/watchdog behavior or live control snapshots.
+Read-only control status retains its classification internally and becomes
+unavailable after the same device timeout; the internal classifier and writable
+controls continue to require confirmed live state.
 
-`ModelCoordinatorEntity` suppresses raw sensor/number/select state writes when
-both the source snapshot object and entity availability are unchanged. A new
-successful read creates a new object even when decoded numbers are identical.
-Availability changes still publish, including failures affecting a cached model.
-Dynamic semantic PV/grid/load sensors recompute from the published FAST inputs.
-No extra public timestamp attributes/entities or `force_update` are added.
+`ModelCoordinatorEntity` retains its source-identity/availability suppression.
+Numbers/selects still resolve live data. Raw sensors override the source view to
+retained measurement data. Successful reads create new model objects even for
+identical values, advancing `last_reported`; failed reads preserve object identity.
+Semantic power/consumption calculations require complete successful FAST inputs
+from the same refresh and otherwise retain the last complete result. Equal input
+payloads reuse their raw calculation, while a successful new measurement still
+reports power. HTTP statuses and control status suppress identical state writes;
+source descriptors/entities are not rebuilt for unchanged topology.
+
+The three informative efficiencies sample the existing successful FAST payloads,
+keep valid samples in `[now - 60, now]`, and publish only at **normal SLOW deadlines**.
+Forced full readbacks and rediscovery do not create additional publication deadlines.
+A failed/invalid due measurement does not publish even a pending historical median.
+The next normal SLOW opportunity with a valid sample can publish. Equal medians do
+not need repeat reports. There is no separate Modbus access, task or timer. Lifetime
+efficiency may reuse valid unpolled SLOW capacity, but never a failed attempted read.
+
+Decimal `ROUND_HALF_UP` normalizes voltage/current/active power at the HA boundary;
+cumulative counters and control inputs retain original precision. See the complete
+[sensor inventory, median lifecycle and reproducible assessment](measurement-publication.md).
+No public timestamp attributes/entities, `force_update`, hysteresis or Recorder
+configuration changes are introduced.
 
 Home Assistant state timestamps have different meanings:
 
@@ -134,18 +162,25 @@ to a three-second timeout; retries remain zero. Other TCP clients are outside th
 integration's lock. There is no asserted fixed request-per-second limit or lockout
 threshold for GEN24.
 
-Enable DEBUG for `custom_components.fronius_pv_manager`. One compact poll record
-per unit reports FAST/FAST+SLOW, unit, selected `(model ID, payload base, length)`
-groups, planned payload read/register totals, discovery flag, elapsed seconds and
-success/failure. Existing exceptional model/discovery debug details remain.
-Nothing new is logged at INFO per cycle.
+Set **Diagnostic level 3** in Configure for bounded technical summaries, or level 1
+for communication/recovery only. The diagnostic level is read live; it does not
+change poll deadlines or reload the runtime. Standard Python WARNING visibility
+suffices; no global DEBUG setting is needed. The [diagnostic event inventory](diagnostics.md)
+describes the structured `FPMGR subsystem=... {JSON}` format and deduplication.
 
-`planned_reads` / `planned_registers` equal actual payload calls/registers on a
-successful cycle. On failure, chunking can stop early: these are planned counts,
-not measured successful transfers or TCP wire packets. They exclude discovery,
-write/readback traffic, reconnect handshakes and HTTP. No invasive transport
-instrumentation was introduced. The elapsed duration includes discovery when
-needed and the unit's payload work; it excludes other units, lock wait and HTTP.
+One `poll_summary` per unit per minute reports FAST/FAST+SLOW, selected model/base/
+length groups, planned payload reads/registers, discovery flag, elapsed milliseconds,
+session generation and result. `planned_reads` / `planned_registers` equal actual
+payload calls/registers only on successful cycles. Failures can stop chunking early;
+counts exclude discovery, write/readback traffic, reconnect handshakes and HTTP.
+Elapsed time covers that unit's discovery and payload work, excluding other units,
+lock wait and optional HTTP. These are diagnostic scheduling summaries, not measured
+wire packets or physical acquisition timestamps. No sensor attributes are added.
+
+Level 1 reports an error-triggered rediscovery after a read/session failure, with
+one recovery event when validated live discovery and complete reads resume. A normal
+300-second discovery renewal remains a healthy operation (detail only at level 3).
+Held sensor availability never determines communication recovery or write authority.
 
 ## Reproducible Modbus cost
 
@@ -186,11 +221,12 @@ capacity limits. Actual cycles depend on topology and response time.
 1. Record GEN24/Smart Meter/battery firmware, discovered units/models/lengths and
    baseline timeout/error counts. Back up HA configuration; install the reviewed
    feature build without changing writable policy or control targets.
-2. Leave options absent initially. Confirm 5/30 defaults. Enable integration DEBUG
-   temporarily and capture at least ten minutes, including a discovery renewal.
-3. Compare per-unit cycle records: approximately five FAST-only cycles between full
-   cycles; successful example payload counts 5/267 versus 11/521 summed over units.
-   Check discovery approximately every 300 seconds, no duplicate model reads.
+2. Leave interval options absent initially. Confirm 5/30 defaults. Set diagnostic
+   level 3 temporarily and capture at least ten minutes, including discovery renewal.
+3. Inspect per-unit summaries and a request trace: healthy summaries are rate-limited
+   to one per minute, so they do not enumerate every cycle. A read-only trace should
+   show approximately five FAST-only cycles between full cycles and example payload
+   counts 5/267 versus 11/521 summed over units; discovery remains about every 300 s.
 4. Inspect representative inverter power, meter phase current, PV/grid/load power
    and battery SoC states. Record value, availability, `last_reported`,
    `last_updated`, `last_changed`. Stable FAST readings should still be reported;
@@ -203,12 +239,13 @@ capacity limits. Actual cycles depend on topology and response time.
    meter and battery separately and verify PV/grid/load signs and arithmetic under
    changing production, household load and battery charging/discharging.
 7. During a safe maintenance window, interrupt connectivity and restore it. Verify
-   unavailable states, independent unit recovery, full recovery reads, unchanged
-   identities and no cached value presented as a fresh failed measurement.
+   held valid sensor states with unchanged `last_reported`, independent unit
+   recovery, full recovery reads, unchanged identities, unavailable writable
+   controls and no old discovery reused as write authority.
 8. Exercise one already approved, reversible writable control using the existing
    safe test procedure. Verify serialized write/readback, confirmed entity state,
    no duplicate write and normal polling afterward; restore the original setting.
-   Disable DEBUG when finished.
+   Restore diagnostic level 0 when finished.
 
 ## Separate temporary physical-cadence experiment
 

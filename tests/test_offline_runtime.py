@@ -113,7 +113,11 @@ async def test_validated_offline_start_and_repeated_recovery(monkeypatch, offlin
         transports[unit].fail_reads = True
         await coordinator.async_refresh()
         assert all(
-            entity.available == (entity._source.device_id != unit)
+            entity.available
+            == (
+                isinstance(entity, sensor.FroniusPVSensor)
+                or entity._source.device_id != unit
+            )
             for entity in entities
         )
         transports[unit].fail_reads = False
@@ -180,7 +184,11 @@ async def test_model_failure_preserves_other_models_and_repeating_identity(monke
     transports[7].read_holding_registers = fail_storage
     await entry.runtime_data.async_refresh()
     assert all(
-        entity.available == (entity._source.model_id != 124) for entity in entities
+        entity.available
+        == (
+            isinstance(entity, sensor.FroniusPVSensor) or entity._source.model_id != 124
+        )
+        for entity in entities
     )
     transports[7].read_holding_registers = read
     await entry.runtime_data.async_refresh()

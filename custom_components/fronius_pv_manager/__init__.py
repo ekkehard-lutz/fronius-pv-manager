@@ -79,7 +79,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
         await coordinator.storage_control.async_load()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_refresh()
-    except Exception, asyncio.CancelledError:
+    except (Exception, asyncio.CancelledError) as err:
+        if not isinstance(err, asyncio.CancelledError):
+            coordinator.diagnostics.event(
+                0, "coordinator", "lifecycle_error", reason=type(err).__name__
+            )
         await coordinator.async_stop()
         del entry.runtime_data
         raise
@@ -90,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FroniusPVConfigEntry) ->
 async def _async_options_updated(
     hass: HomeAssistant, entry: FroniusPVConfigEntry
 ) -> None:
-    """Reload only for interval changes, not persisted discovery updates."""
+    """Diagnostics and availability read options live; only interval changes reload."""
     from .const import (
         CONF_FAST_SCAN_INTERVAL,
         CONF_SLOW_SCAN_INTERVAL,

@@ -31,6 +31,8 @@ from . import FroniusPVConfigEntry
 from .const import DOMAIN
 from .coordinator import FroniusPVCoordinator
 from .entity_naming import suggested_object_id
+from .measurement import normalize_measurement
+from .measurement_entity import MeasurementSolarEntity
 from .model_entity import ModelCoordinatorEntity
 from .models import (
     EntityCategoryHint,
@@ -120,9 +122,24 @@ async def async_setup_entry(
     setup_solar_entities(entry, async_add_entities, _solar_sensors)
     coordinator = entry.runtime_data
     known: set[str] = set()
+    last_structure = None
 
     @callback
     def add_new_entities():
+        nonlocal last_structure
+        structure = coordinator.topology or tuple(
+            (
+                d.device_id,
+                tuple(
+                    (s.discovered, coordinator._reading_identity(s))
+                    for s in d.decoded_models
+                ),
+            )
+            for d in coordinator.entity_data.devices
+        )
+        if structure == last_structure:
+            return
+        last_structure = structure
         sources = _sensor_sources(coordinator)
         devices_by_role: dict[PhysicalDeviceRole, set[int]] = {}
         for source in sources:
@@ -275,12 +292,16 @@ class FroniusPVSensor(ModelCoordinatorEntity, SensorEntity):
         )
 
     @property
+    def source_data(self):
+        return self.coordinator.measurement_data
+
+    @property
     def available(self) -> bool:
-        """Combine endpoint refresh status with this device's poll status."""
+        """Use retained valid sensor data independently of live write availability."""
         device = next(
             (
                 device
-                for device in self.coordinator.data.devices
+                for device in self.source_data.devices
                 if device.device_id == self._source.device_id
             ),
             None,
@@ -295,11 +316,13 @@ class FroniusPVSensor(ModelCoordinatorEntity, SensorEntity):
             ]
         )
         return (
-            super().available
-            and device is not None
+            device is not None
             and device.available
             and self._source.model_occurrence < len(matching)
             and matching[self._source.model_occurrence].available
+            and self.coordinator.measurement_available(
+                self._source.device_id, matching[self._source.model_occurrence]
+            )
         )
 
     @property
@@ -308,7 +331,7 @@ class FroniusPVSensor(ModelCoordinatorEntity, SensorEntity):
         device = next(
             (
                 device
-                for device in self.coordinator.data.devices
+                for device in self.source_data.devices
                 if device.device_id == self._source.device_id
             ),
             None,
@@ -339,7 +362,17 @@ class FroniusPVSensor(ModelCoordinatorEntity, SensorEntity):
             option = _enum_option(value.value)
             options = self.entity_description.options
             return option if options is not None and option in options else None
-        return value.value
+        # Settings and control parameters retain their original precision.
+        unit = self._source.entity.presentation_unit or self._source.register.unit
+        return (
+            normalize_measurement(value.value, unit)
+            if (
+                self.entity_description.state_class == SensorStateClass.MEASUREMENT
+                and self._source.model_id not in (120, 121, 123)
+                and self._source.register_name != "WChaMax"
+            )
+            else value.value
+        )
 
 
 def _entity_description(
@@ -537,7 +570,7 @@ def _power_model(coordinator, device_id, model_id):
     return matches[0].decoded
 
 
-class SolarPowerSensor(SolarEntity, SensorEntity):
+class SolarPowerSensor(MeasurementSolarEntity, SensorEntity):
     """Read semantic power from current Modbus data, independent of Solar API."""
 
     _attr_native_unit_of_measurement = UnitOfPower.WATT
@@ -577,7 +610,7 @@ class SolarPowerSensor(SolarEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.value
+        return self.published_value
 
 
 def _grid_direction_power(power, key):
@@ -594,7 +627,7 @@ def _active_power(coordinator, device_id, model_id):
     return _semantic_number(power.value if power is not None else None)
 
 
-class SolarConsumptionSensor(SolarEntity, SensorEntity):
+class SolarConsumptionSensor(MeasurementSolarEntity, SensorEntity):
     """Site consumption and instantaneous ratios on the existing inverter."""
 
     def __init__(self, coordinator, entry_id, device_id, key):
@@ -649,7 +682,7 @@ class SolarConsumptionSensor(SolarEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.value
+        return self.published_value
 
 
 def _efficiency_number(values, key):
@@ -661,7 +694,7 @@ def _efficiency_number(values, key):
     return value
 
 
-class SolarEfficiencySensor(SolarEntity, SensorEntity):
+class SolarEfficiencySensor(MeasurementSolarEntity, SensorEntity):
     """Efficiency from unambiguous models on one Modbus inverter/storage system."""
 
     _attr_native_unit_of_measurement = "%"
@@ -753,7 +786,7 @@ class SolarEfficiencySensor(SolarEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.value
+        return self.published_value
 
 
 def _solar_sensors(coordinator, entry_id, device_id):

@@ -16,15 +16,20 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 
 from .const import (
+    CONF_COMMUNICATION_AVAILABILITY_TIMEOUT,
     CONF_DEVICE_IDS,
+    CONF_DIAGNOSTIC_LEVEL,
     CONF_FAST_SCAN_INTERVAL,
     CONF_SLOW_SCAN_INTERVAL,
+    DEFAULT_COMMUNICATION_AVAILABILITY_TIMEOUT,
     DEFAULT_FAST_SCAN_INTERVAL,
     DEFAULT_PORT,
     DEFAULT_SLOW_SCAN_INTERVAL,
     DOMAIN,
+    MAX_COMMUNICATION_AVAILABILITY_TIMEOUT,
     MAX_FAST_SCAN_INTERVAL,
     MAX_SLOW_SCAN_INTERVAL,
+    MIN_COMMUNICATION_AVAILABILITY_TIMEOUT,
     MIN_FAST_SCAN_INTERVAL,
     MIN_SLOW_SCAN_INTERVAL,
 )
@@ -276,8 +281,16 @@ class FroniusPVManagerOptionsFlow(OptionsFlow):
     """Configure selective polling without changing endpoint/entity identities."""
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
-        """Validate intervals and store them in config entry options."""
-        values = dict(self.config_entry.options)
+        """Validate polling and diagnostics and persist config entry options."""
+        values = {
+            CONF_FAST_SCAN_INTERVAL: DEFAULT_FAST_SCAN_INTERVAL,
+            CONF_SLOW_SCAN_INTERVAL: DEFAULT_SLOW_SCAN_INTERVAL,
+            CONF_DIAGNOSTIC_LEVEL: 0,
+            CONF_COMMUNICATION_AVAILABILITY_TIMEOUT: (
+                DEFAULT_COMMUNICATION_AVAILABILITY_TIMEOUT
+            ),
+            **self.config_entry.options,
+        }
         errors = {}
         if user_input is not None:
             values.update(user_input)
@@ -296,6 +309,19 @@ class FroniusPVManagerOptionsFlow(OptionsFlow):
                 value = values.get(key)
                 if type(value) is not int or not minimum <= value <= maximum:
                     errors[key] = "invalid_interval"
+            timeout = values.get(CONF_COMMUNICATION_AVAILABILITY_TIMEOUT)
+            if (
+                type(timeout) is not int
+                or not MIN_COMMUNICATION_AVAILABILITY_TIMEOUT
+                <= timeout
+                <= MAX_COMMUNICATION_AVAILABILITY_TIMEOUT
+            ):
+                errors[CONF_COMMUNICATION_AVAILABILITY_TIMEOUT] = (
+                    "invalid_communication_timeout"
+                )
+            level = values.get(CONF_DIAGNOSTIC_LEVEL)
+            if type(level) is not int or not 0 <= level <= 3:
+                errors[CONF_DIAGNOSTIC_LEVEL] = "invalid_diagnostic_level"
             if (
                 not errors
                 and values[CONF_SLOW_SCAN_INTERVAL] < values[CONF_FAST_SCAN_INTERVAL]
@@ -307,6 +333,23 @@ class FroniusPVManagerOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Required(
+                        CONF_COMMUNICATION_AVAILABILITY_TIMEOUT,
+                        default=values.get(
+                            CONF_COMMUNICATION_AVAILABILITY_TIMEOUT,
+                            DEFAULT_COMMUNICATION_AVAILABILITY_TIMEOUT,
+                        ),
+                    ): vol.All(
+                        int,
+                        vol.Range(
+                            min=MIN_COMMUNICATION_AVAILABILITY_TIMEOUT,
+                            max=MAX_COMMUNICATION_AVAILABILITY_TIMEOUT,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_DIAGNOSTIC_LEVEL,
+                        default=values.get(CONF_DIAGNOSTIC_LEVEL, 0),
+                    ): vol.All(int, vol.Range(min=0, max=3)),
                     vol.Required(
                         CONF_FAST_SCAN_INTERVAL,
                         default=values.get(

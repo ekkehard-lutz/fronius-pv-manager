@@ -77,28 +77,50 @@ floating-point models are not newly supported by this feature.
 
 ## Failure, recovery and publication
 
-Successful FAST reads publish through the normal coordinator refresh immediately
-when that refresh completes; they never wait for a SLOW deadline. Unread SLOW
-snapshots retain their exact object identity and decoded values. A failed model
-read/decode instead produces an unavailable, empty snapshot for that model and
-invalidates that unit's live discovery authority for retry on the next refresh.
-Successful sibling models/units survive. If all attempted model reads fail,
-retained SLOW metadata cannot keep the unit available. A discovery failure makes
-the unit unavailable. Battery availability follows its existing model/channel
-semantics; there is no new battery transport.
+Successful FAST reads publish immediately after the coordinator refresh completes.
+Unpolled SLOW snapshots retain exact object identity, suppressing redundant writes.
+Raw sensor publication uses `measurement_data`: failed **reads** reuse the last
+valid model snapshot for that device, so no callback publication or freshness is
+invented. A failed second chunk never commits a partial model. Repeated timeouts,
+including discovery transport failures and TCP resets, have no age-based expiry.
+Initial missing data remains unknown/unavailable. A decode error remains an invalid
+model, rather than being treated as a successful read or silently masked.
 
-Discovery still expires 300 seconds after successful discovery and is renewed
-on the next refresh. Reconnection/session generation changes also invalidate it.
-Rediscovery reads all supported models, preventing cached SLOW values from an old
-layout/session being reused. Cached topology still constructs offline entities
-but cannot authorize writes. Startup while offline and recovery retain identities.
+Live `data` still contains failed/empty models and unavailable devices. Discovery
+expires after 300 seconds and session generation changes invalidate authority.
+Failures clear that unit's discovery authority and normal polling attempts recovery.
+Revalidated identical topology permits continuation of the sensor series; proven
+invalid discovery, changed model coordinates or changed Common identity/channel
+identities clear incompatible readings and derived histories. Cached SLOW data from
+the old identity cannot fill the replacement's missing measurements. Units are
+isolated even when sharing a TCP endpoint. No held measurement changes write
+validation, readback, ownership, lease/watchdog behavior or live control snapshots.
+Read-only control status retains its displayed classification; the internal
+classifier and writable controls continue to require confirmed live state.
 
-`ModelCoordinatorEntity` suppresses raw sensor/number/select state writes when
-both the source snapshot object and entity availability are unchanged. A new
-successful read creates a new object even when decoded numbers are identical.
-Availability changes still publish, including failures affecting a cached model.
-Dynamic semantic PV/grid/load sensors recompute from the published FAST inputs.
-No extra public timestamp attributes/entities or `force_update` are added.
+`ModelCoordinatorEntity` retains its source-identity/availability suppression.
+Numbers/selects still resolve live data. Raw sensors override the source view to
+retained measurement data. Successful reads create new model objects even for
+identical values, advancing `last_reported`; failed reads preserve object identity.
+Semantic power/consumption calculations require complete successful FAST inputs
+from the same refresh and otherwise retain the last complete result. Equal input
+payloads reuse their raw calculation, while a successful new measurement still
+reports power. HTTP statuses and control status suppress identical state writes;
+source descriptors/entities are not rebuilt for unchanged topology.
+
+The three informative efficiencies sample the existing successful FAST payloads,
+keep valid samples in `[now - 60, now]`, and publish only at **normal SLOW deadlines**.
+Forced full readbacks and rediscovery do not create additional publication deadlines.
+A failed/invalid due measurement does not publish even a pending historical median.
+The next normal SLOW opportunity with a valid sample can publish. Equal medians do
+not need repeat reports. There is no separate Modbus access, task or timer. Lifetime
+efficiency may reuse valid unpolled SLOW capacity, but never a failed attempted read.
+
+Decimal `ROUND_HALF_UP` normalizes voltage/current/active power at the HA boundary;
+cumulative counters and control inputs retain original precision. See the complete
+[sensor inventory, median lifecycle and reproducible assessment](measurement-publication.md).
+No public timestamp attributes/entities, `force_update`, hysteresis or Recorder
+configuration changes are introduced.
 
 Home Assistant state timestamps have different meanings:
 
@@ -203,8 +225,9 @@ capacity limits. Actual cycles depend on topology and response time.
    meter and battery separately and verify PV/grid/load signs and arithmetic under
    changing production, household load and battery charging/discharging.
 7. During a safe maintenance window, interrupt connectivity and restore it. Verify
-   unavailable states, independent unit recovery, full recovery reads, unchanged
-   identities and no cached value presented as a fresh failed measurement.
+   held valid sensor states with unchanged `last_reported`, independent unit
+   recovery, full recovery reads, unchanged identities, unavailable writable
+   controls and no old discovery reused as write authority.
 8. Exercise one already approved, reversible writable control using the existing
    safe test procedure. Verify serialized write/readback, confirmed entity state,
    no duplicate write and normal polling afterward; restore the original setting.

@@ -1,5 +1,8 @@
 """Efficiency calculations use scaled SunSpec data, not enabled HA entities."""
 
+# Formula assertions use unrounded .value; native publication/median is tested
+# separately in test_measurement_publication.py.
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -112,7 +115,7 @@ def change(snapshots, model_id, field, value, module_index=None):
 def test_inverter_formula(pv, charge, discharge, ac, expected):
     _, entities = efficiency(sources(pv, charge, discharge, ac))
     entity = entities["inverter_efficiency"]
-    assert entity.native_value == (
+    assert entity.value == (
         pytest.approx(expected) if expected is not None else None
     )
     assert entity.available == (expected is not None)
@@ -135,7 +138,7 @@ def test_requires_mppt_enum(state):
 )
 def test_lifetime_reference(soc, expected):
     _, entities = efficiency(change(sources(), 124, "ChaState", soc))
-    assert entities["battery_lifetime_efficiency"].native_value == pytest.approx(
+    assert entities["battery_lifetime_efficiency"].value == pytest.approx(
         expected
     )
 
@@ -160,7 +163,7 @@ def test_lifetime_reference(soc, expected):
 )
 def test_invalid_sources(key, model, field, index, invalid):
     _, entities = efficiency(change(sources(), model, field, invalid, index))
-    assert entities[key].native_value is None
+    assert entities[key].value is None
     assert not entities[key].available
 
 
@@ -181,7 +184,7 @@ def test_lifetime_above_100_not_clamped():
     snapshots = change(sources(), 160, "DCWH", 1000, 1)
     snapshots = change(snapshots, 160, "DCWH", 900, 2)
     _, entities = efficiency(snapshots)
-    assert entities["battery_lifetime_efficiency"].native_value == pytest.approx(838)
+    assert entities["battery_lifetime_efficiency"].value == pytest.approx(838)
 
 
 @pytest.mark.parametrize("model_id", [103, 120, 124, 160])
@@ -236,7 +239,7 @@ def test_multiple_mppts_unknown_modules_and_missing_pv():
         dc, decoded=replace(dc.decoded, repeating={"module": tuple(modules)})
     )
     _, entities = efficiency(snapshots)
-    assert entities["inverter_efficiency"].native_value == 48
+    assert entities["inverter_efficiency"].value == 48
     snapshots = change(snapshots, 160, "DCW", None, 4)
     _, entities = efficiency(snapshots)
     assert not entities["inverter_efficiency"].available
@@ -268,8 +271,8 @@ def test_engineering_units_from_real_decoder():
         _snapshot(MODEL_160, words),
     )
     _, entities = efficiency(snapshots)
-    assert entities["inverter_efficiency"].native_value == pytest.approx(96)
-    assert entities["battery_lifetime_efficiency"].native_value == pytest.approx(
+    assert entities["inverter_efficiency"].value == pytest.approx(96)
+    assert entities["battery_lifetime_efficiency"].value == pytest.approx(
         93.6201511116
     )
     assert snapshots[1].decoded.fixed["WHRtg"].value == 11000
@@ -355,6 +358,6 @@ def test_no_mppt_and_zero_discharge_counter():
     snapshots = change(snapshots, 160, "DCWH", 0, 2)
     _, entities = efficiency(snapshots)
     assert not entities["inverter_efficiency"].available
-    assert entities["battery_lifetime_efficiency"].native_value == pytest.approx(
+    assert entities["battery_lifetime_efficiency"].value == pytest.approx(
         100 * 7480 / 6453440
     )

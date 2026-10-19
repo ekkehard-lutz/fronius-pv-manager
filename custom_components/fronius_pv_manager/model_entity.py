@@ -9,8 +9,12 @@ from .coordinator import FroniusPVCoordinator
 class ModelCoordinatorEntity(CoordinatorEntity[FroniusPVCoordinator]):
     """Retained snapshots must not look like newly reported measurements."""
 
+    @property
+    def source_data(self):
+        return self.coordinator.data
+
     def _source_snapshot(self):
-        for device in self.coordinator.data.devices:
+        for device in self.source_data.devices:
             if device.device_id == self._source.device_id:
                 matching = [
                     model

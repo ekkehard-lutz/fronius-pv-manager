@@ -48,6 +48,7 @@ class DecodedModelSnapshot:
     definition: SunSpecModelDefinition
     decoded: DecodedModel
     available: bool = True
+    read_failed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +100,10 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         )
         self._slow_deadlines: dict[int, float] = {}
         self._force_slow = False
+        self._measurement_data = None
+        self.measurement_epochs = {}
+        self.slow_publication_devices = set()
+        self.measurement_time = 0.0
         super().__init__(
             hass,
             _LOGGER,
@@ -143,6 +148,82 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
         self._io_lock = asyncio.Lock()
         self.write_runtime = FroniusPVWriteRuntime(self)
         self.storage_control = StorageControl(self)
+
+    @property
+    def measurement_data(self):
+        """Retained sensor readings; never a source of write authority."""
+        return self.data if self._measurement_data is None else self._measurement_data
+
+    def _retain_measurements(self, data, incompatible, validated):
+        previous = {d.device_id: d for d in self.measurement_data.devices}
+        devices = []
+        for device in data.devices:
+            old = previous.get(device.device_id)
+            changed = device.device_id in incompatible or (
+                old is not None
+                and old.decoded_models
+                and (device.discovered_models or device.device_id in validated)
+                and device.discovered_models != old.discovered_models
+            )
+            if old is not None:
+                # A successfully decoded identity/channel change proves replacement.
+                for snapshot in device.decoded_models:
+                    prior = next(
+                        (
+                            s
+                            for s in old.decoded_models
+                            if s.discovered == snapshot.discovered
+                        ),
+                        None,
+                    )
+                    if snapshot.available and prior is not None and prior.available:
+                        if self._reading_identity(snapshot) != self._reading_identity(
+                            prior
+                        ):
+                            changed = True
+            old_snapshots = old.decoded_models if old else ()
+            if changed:
+                self.measurement_epochs[device.device_id] = (
+                    self.measurement_epochs.get(device.device_id, 0) + 1
+                )
+                old = None
+            if device.device_id in incompatible:
+                devices.append(DeviceSnapshot(device.device_id, (), (), False))
+                continue
+            if not device.decoded_models and old is not None:
+                devices.append(old)
+                continue
+            cached = {s.discovered: s for s in old.decoded_models} if old else {}
+            snapshots = tuple(
+                DecodedModelSnapshot(
+                    s.discovered, s.definition, DecodedModel({}, {}), available=False
+                )
+                if changed and any(s is prior for prior in old_snapshots)
+                else cached[s.discovered]
+                if s.read_failed and s.discovered in cached
+                else s
+                for s in device.decoded_models
+            )
+            devices.append(
+                DeviceSnapshot(
+                    device.device_id,
+                    device.discovered_models,
+                    snapshots,
+                    any(s.available for s in snapshots),
+                )
+            )
+        self._measurement_data = FroniusPVCoordinatorData(tuple(devices))
+
+    @staticmethod
+    def _reading_identity(snapshot):
+        if snapshot.discovered.model_id == 1:
+            return tuple(snapshot.decoded.fixed.get(k) for k in ("Mn", "Md", "SN"))
+        if snapshot.discovered.model_id == 160:
+            return tuple(
+                tuple(m.values.get(k) for k in ("ID", "IDStr"))
+                for m in snapshot.decoded.repeating.get("module", ())
+            )
+        return None
 
     @property
     def io_lock(self) -> asyncio.Lock:
@@ -296,6 +377,9 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
     def _poll_devices(self) -> FroniusPVCoordinatorData:
         """Read FAST each refresh; retain untouched SLOW snapshots by identity."""
         devices = []
+        incompatible = set()
+        validated = set()
+        self.slow_publication_devices = set()
         force_slow = self._force_slow
         self._force_slow = False
         for device_id, transport in self.transports.items():
@@ -303,6 +387,8 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
             discovered = self.live_models(device_id)
             rediscover = not discovered
             deadline = self._slow_deadlines.get(device_id, started)
+            if started >= deadline:
+                self.slow_publication_devices.add(device_id)
             slow_due = force_slow or rediscover or started >= deadline
             previous_device = next(
                 (
@@ -322,6 +408,7 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
             try:
                 if rediscover:
                     discovered = self._discover_device(device_id, transport)
+                    validated.add(device_id)
                 selected = tuple(
                     model
                     for model in discovered
@@ -342,7 +429,9 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                     if model in refreshed or model in cached
                 )
                 success = all(model.available for model in decoded)
-            except ModbusTransportError, SunSpecDiscoveryError:
+            except (ModbusTransportError, SunSpecDiscoveryError) as err:
+                if isinstance(err, SunSpecDiscoveryError):
+                    incompatible.add(device_id)
                 self.discovered_models_by_device.pop(device_id, None)
                 _LOGGER.debug(
                     "Failed to poll Modbus device ID %s", device_id, exc_info=True
@@ -418,7 +507,10 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                     time.monotonic() - started,
                     success,
                 )
-        return FroniusPVCoordinatorData(tuple(devices))
+        data = FroniusPVCoordinatorData(tuple(devices))
+        self.measurement_time = time.monotonic()
+        self._retain_measurements(data, incompatible, validated)
+        return data
 
     @staticmethod
     def _poll_device(
@@ -438,20 +530,21 @@ class FroniusPVCoordinator(DataUpdateCoordinator[FroniusPVCoordinatorData]):
                     discovered.length,
                 )
                 decoded = decode_model(definition, payload)
-            except ModbusTransportError, ValueError:
+            except (ModbusTransportError, ValueError) as err:
                 _LOGGER.debug(
                     "Failed to read SunSpec model %s at address %s",
                     discovered.model_id,
                     discovered.base_address,
                     exc_info=True,
                 )
-                # Preserve occurrence coordinates without retaining old values.
+                # Live safety data remains invalid; sensor retention is separate.
                 decoded_models.append(
                     DecodedModelSnapshot(
                         discovered,
                         definition,
                         DecodedModel({}, {}),
                         available=False,
+                        read_failed=isinstance(err, ModbusTransportError),
                     )
                 )
             else:

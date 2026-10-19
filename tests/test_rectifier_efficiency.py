@@ -1,5 +1,8 @@
 """Rectifier efficiency uses validated, same-device AC-to-DC power balances."""
 
+# Formula assertions use unrounded .value; native publication/median is tested
+# separately in test_measurement_publication.py.
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -60,7 +63,7 @@ def entity(snapshots=None):
 )
 def test_formula(pv, charge, discharge, ac, expected):
     coordinator, sensor, transport = entity(rectifier(pv, charge, discharge, ac))
-    assert sensor.native_value == (
+    assert sensor.value == (
         pytest.approx(expected) if expected is not None else None
     )
     assert sensor.available == (expected is not None)
@@ -68,14 +71,14 @@ def test_formula(pv, charge, discharge, ac, expected):
         inverter = SolarEfficiencySensor(
             coordinator, "test-entry", 1, "inverter_efficiency", "inverter"
         )
-        assert inverter.native_value is None and not inverter.available
+        assert inverter.value is None and not inverter.available
     assert transport.read_calls == []
 
 
 @pytest.mark.parametrize("state", [0, 1, 2, 3, 5, 6, 7, 8, None, "missing", 4])
 def test_requires_decoded_mppt(state):
     _, sensor, _ = entity(change(rectifier(), 103, "St", state))
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available
 
 
 @pytest.mark.parametrize(
@@ -87,13 +90,13 @@ def test_requires_decoded_mppt(state):
 )
 def test_invalid_sources(model, field, index, invalid):
     _, sensor, _ = entity(change(rectifier(), model, field, invalid, index))
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available
 
 
 @pytest.mark.parametrize("index", [0, 1, 2])
 def test_negative_dc_source(index):
     _, sensor, _ = entity(change(rectifier(), 160, "DCW", -1, index))
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available
 
 
 @pytest.mark.parametrize("model", [103, 160])
@@ -120,7 +123,7 @@ def test_required_models(model, failure):
             ),
         ),
     )
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available
 
 
 @pytest.mark.parametrize(
@@ -148,7 +151,7 @@ def test_required_modules(index, failure):
         dc, decoded=replace(dc.decoded, repeating={"module": tuple(modules)})
     )
     _, sensor, _ = entity(snapshots)
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available
 
 
 def test_all_mppts_are_summed():
@@ -163,7 +166,7 @@ def test_all_mppts_are_summed():
         ),
     )
     _, sensor, _ = entity(snapshots)
-    assert sensor.native_value == pytest.approx(75)
+    assert sensor.value == pytest.approx(75)
 
 
 @pytest.mark.parametrize(
@@ -193,7 +196,7 @@ def test_unavailable_and_no_cross_device_borrowing(failure):
                 replace(device, device_id=2),
             ),
         )
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available
 
 
 @pytest.mark.asyncio
@@ -231,7 +234,7 @@ async def test_discovery_metadata_and_recovery():
         )
         assert data["entity"]["sensor"][sensor.key]["name"] == name
     coordinator.last_update_success = False
-    assert not sensor.available and sensor.native_value is None
+    assert not sensor.available and sensor.value is None
     coordinator.last_update_success = True
     coordinator.async_set_updated_data(populated.data)
     assert sensor.available
@@ -248,7 +251,7 @@ def test_device_topology(duplicate):
     )
     assert sensor.available == (not duplicate)
     if duplicate:
-        assert sensor.native_value is None
+        assert sensor.value is None
 
 
 @pytest.mark.parametrize(
@@ -260,4 +263,4 @@ def test_device_topology(duplicate):
 )
 def test_nonfinite_calculation(pv, charge, discharge, ac):
     _, sensor, _ = entity(rectifier(pv, charge, discharge, ac))
-    assert sensor.native_value is None and not sensor.available
+    assert sensor.value is None and not sensor.available

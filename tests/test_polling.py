@@ -192,15 +192,15 @@ async def test_unchanged_fast_reports_but_cached_slow_does_not(clock, tmp_path):
         assert state.last_changed == original[mid][0]
         assert state.last_updated == original[mid][1]
         assert (state.last_reported > original[mid][2]) == (mid == 103)
-    # Model failures publish unavailable instead of silently keeping good readings.
+    # Failed reads retain sensor values without publishing a fresh report.
     transport.fail_reads = True
     clock.now = 30
     await coordinator.async_refresh()
     for entity in sensors:
         entity.async_write_ha_state = Mock()
         entity._handle_coordinator_update()
-        entity.async_write_ha_state.assert_called_once()
-        assert not entity.available
+        entity.async_write_ha_state.assert_not_called()
+        assert entity.available
 
 
 @pytest.mark.asyncio

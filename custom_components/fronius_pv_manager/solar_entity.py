@@ -25,6 +25,18 @@ class SolarEntity(CoordinatorEntity):
             translation_key=f"{role}_device",
         )
 
+    async def async_added_to_hass(self):
+        self._reported_semantic_state = (self.value, self.available)
+        await super().async_added_to_hass()
+
+    @callback
+    def _handle_coordinator_update(self):
+        # HTTP status values have no measurement freshness contract.
+        state = (self.value, self.available)
+        if state != getattr(self, "_reported_semantic_state", None):
+            self._reported_semantic_state = state
+            self.async_write_ha_state()
+
     @property
     def suggested_object_id(self):
         return f"{self.role}_{self.key}"
@@ -45,9 +57,24 @@ def setup_solar_entities(entry, async_add_entities, factory):
     """Use cached/discovered topology and add entities when devices appear."""
     coordinator = entry.runtime_data
     known = set()
+    last_structure = None
 
     @callback
     def add_new():
+        nonlocal last_structure
+        structure = coordinator.topology or tuple(
+            (
+                d.device_id,
+                tuple(
+                    (s.discovered, coordinator._reading_identity(s))
+                    for s in d.decoded_models
+                ),
+            )
+            for d in coordinator.entity_data.devices
+        )
+        if structure == last_structure:
+            return
+        last_structure = structure
         fresh = []
         for device in coordinator.entity_data.devices:
             roles = {

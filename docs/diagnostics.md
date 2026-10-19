@@ -223,7 +223,7 @@ format check already reports **45 pre-existing files** at the required baseline;
 the same 45 remain, with **no new format violations**. They are left unchanged to
 avoid unrelated formatting. Compare the baseline in a temporary `git archive`
 checkout, using the same installed Ruff, rather than accepting a new formatting
-failure as pre-existing. 
+failure as pre-existing.
 
 Changed files: `README.md`, `docs/polling.md`, this event inventory;
 `custom_components/fronius_pv_manager/{__init__,const,config_flow,coordinator,transport,

@@ -6,6 +6,16 @@ available in Git history and GitHub releases.
 
 ## [Unreleased]
 
+## [v1.2.2-beta.1] - 2026-11-17
+
+### Changed
+
+- All number entities use `NumberMode.BOX`, including low-level register
+  controls that are disabled by default. Input boxes replace sliders and
+  support direct numeric entry and increment/decrement buttons.
+- Number entities retain their numeric ranges, steps, units, identities,
+  registry defaults, and Modbus write behavior.
+
 ## [v1.1.0] - 2026-09-17
 
 ### Added

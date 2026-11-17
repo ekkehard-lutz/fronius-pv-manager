@@ -13,6 +13,9 @@ from custom_components.fronius_pv_manager.const import DOMAIN
 class _ConfigEntries:
     """Provide the config-entry identity required by Device Registry."""
 
+    async def async_wait_initialized(self) -> None:
+        """The synthetic config entries are already initialized."""
+
     def async_get_entry(self, entry_id: str):
         """Return one minimal existing integration config entry."""
         if entry_id != "test-entry":

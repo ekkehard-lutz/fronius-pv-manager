@@ -4,10 +4,18 @@ import json
 from pathlib import Path
 
 import pytest
+from homeassistant.components.number import NumberMode
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import ServiceValidationError
 
+from custom_components.fronius_pv_manager.coordinator import (
+    DecodedModelSnapshot,
+    DeviceSnapshot,
+    FroniusPVCoordinatorData,
+)
+from custom_components.fronius_pv_manager.model_decoder import decode_model
 from custom_components.fronius_pv_manager.models import (
+    DiscoveredModel,
     EntityPlatform,
     PhysicalDeviceRole,
 )
@@ -54,6 +62,52 @@ async def number_entities(policy: WritePolicy | None):
 def by_register(entities, name: str):
     """Return one control entity by semantic register name."""
     return next(entity for entity in entities if entity._source.register_name == name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_id", [123, 124])
+async def test_register_numbers_use_boxes_and_keep_catalog_metadata(model_id: int):
+    """All exposed register numbers use box mode and remain disabled by default."""
+    model = MODEL_DEFINITIONS_BY_ID[model_id]
+    discovered = DiscoveredModel(model_id, MODEL_BASE, model.expected_length)
+    snapshot = DecodedModelSnapshot(
+        discovered, model, decode_model(model, (0,) * model.expected_length)
+    )
+    coordinator = ControlCoordinator({})
+    coordinator.data = FroniusPVCoordinatorData(
+        (DeviceSnapshot(1, (discovered,), (snapshot,)),)
+    )
+    entry = FakeEntry({})
+    entry.runtime_data = coordinator
+    entities = []
+    await async_setup_entry(coordinator.hass, entry, entities.extend)
+
+    numbers = {
+        entity.translation_key: entity
+        for entity in entities
+        if isinstance(entity, FroniusPVNumber)
+    }
+    expected = {
+        register.entity.translation_key: register
+        for register in model.registers
+        if register.entity is not None
+        and register.entity.platform is EntityPlatform.NUMBER
+        and register.valid_range is not None
+        and register.valid_range.minimum is not None
+        and register.valid_range.maximum is not None
+    }
+    assert expected
+    assert numbers.keys() == expected.keys()
+    for key, definition in expected.items():
+        entity = numbers[key]
+        assert entity.mode is NumberMode.BOX
+        assert entity.native_min_value == definition.valid_range.minimum
+        assert entity.native_max_value == definition.valid_range.maximum
+        assert entity.native_step == definition.valid_range.step
+        assert entity.native_unit_of_measurement == (
+            definition.entity.presentation_unit or definition.unit
+        )
+        assert entity.entity_registry_enabled_default is False
 
 
 @pytest.mark.asyncio

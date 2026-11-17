@@ -4,6 +4,7 @@ from dataclasses import asdict, replace
 from fractions import Fraction
 
 import pytest
+from homeassistant.components.number import NumberMode
 from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.fronius_pv_manager.number import StorageNumber, async_setup_entry
@@ -44,6 +45,24 @@ async def power_entities(coordinator):
     return {
         entity.key: entity for entity in entities if isinstance(entity, StorageNumber)
     }
+
+
+@pytest.mark.asyncio
+async def test_storage_numbers_use_boxes_and_keep_numeric_settings():
+    coordinator, _ = hardware()
+    entities = await power_entities(coordinator)
+    expected = {field: (0, REFERENCE, "W") for field, _, _ in FIELDS}
+    expected["minimum_reserve"] = (5, 100, "%")
+
+    assert entities.keys() == expected.keys()
+    for key, (minimum, maximum, unit) in expected.items():
+        entity = entities[key]
+        assert entity.mode is NumberMode.BOX
+        assert entity.native_min_value == minimum
+        assert entity.native_max_value == maximum
+        assert entity.native_step == 1
+        assert entity.native_unit_of_measurement == unit
+        assert entity.entity_registry_enabled_default is True
 
 
 @pytest.mark.asyncio

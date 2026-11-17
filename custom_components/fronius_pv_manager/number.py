@@ -3,7 +3,11 @@
 import math
 from decimal import Decimal
 
-from homeassistant.components.number import NumberEntity, NumberEntityDescription
+from homeassistant.components.number import (
+    NumberEntity,
+    NumberEntityDescription,
+    NumberMode,
+)
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
@@ -82,6 +86,7 @@ class FroniusPVNumber(ModelCoordinatorEntity, NumberEntity):
         self.entity_description = NumberEntityDescription(
             key=source.entity.key,
             translation_key=source.translation_key,
+            mode=NumberMode.BOX,
             native_min_value=float(minimum),
             native_max_value=float(maximum),
             native_step=_effective_step(source),
@@ -221,6 +226,7 @@ def _entity_category(hint: EntityCategoryHint) -> EntityCategory | None:
 class StorageNumber(StorageEntity, NumberEntity):
     """Reserve or an integration-owned watt constraint."""
 
+    _attr_mode = NumberMode.BOX
     _attr_native_step = 1
 
     def __init__(self, coordinator, entry_id, source, key):
